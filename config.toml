@@ -1,0 +1,25 @@
+# wxgame-bot 配置
+
+[window]
+# 游戏窗口标题关键字（微信小程序窗口标题 = 游戏名）
+title_keyword = "雷霆战机"
+# 进程名过滤：排除 Edge 等浏览器里同名标签页窗口；留空 = 不按进程过滤
+process_name = "WeChatAppEx"
+# 窗口截屏留边：去掉标题栏/边框像素（按实际窗口微调）
+trim_top = 32
+trim_rest = 8
+
+[bot]
+# 模板匹配置信度阈值（0~1，误识别就调高，找不到就调低）
+threshold = 0.86
+# 拟人点击：随机偏移像素范围
+jitter_px = 6
+# 点击后随机停顿区间（秒）
+delay_min = 0.6
+delay_max = 1.6
+# 单步等待界面出现的超时（秒）
+step_timeout = 10.0
+# 未找到目标时的重试间隔（秒）
+retry_interval = 1.5
+# true = 只找图打日志，不真的点击（调试用）
+dry_run = false

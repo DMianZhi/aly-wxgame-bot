@@ -1,0 +1,14 @@
+[project]
+name = "wxgame-bot"
+version = "0.1.0"
+description = "PC 微信小游戏每日任务自动化（截屏找图 + 拟人点击）"
+requires-python = ">=3.12"
+dependencies = [
+    "opencv-python>=4.10",
+    "numpy>=2.0",
+    "pyautogui>=0.9.54",
+    "pillow>=12.3.0",
+]
+
+[tool.uv]
+package = false
