@@ -19,7 +19,7 @@
   ⑤ 尺寸相同 → 原样返回；退化输入（高=标题栏）不炸
   ⑥ 端到端: Screen.click_base 的 dry 计划 == 换算结果（咽喉收口有效）
   ⑦ 「命中+偏移」的偏移量随窗口缩放（导弹猎场闪击键的定位方式）
-  ⑧ 用例常量口径审计: 四角点(x0,y0,x1,y1) 与 位置+尺寸(x,y,w,h) 不许混（ROI 静默变空）
+  ⑧ 用例常量口径审计: 矩形一律 (x,y,w,h) 基准、宽高为正、在 812 标定帧上往返恒等
 
 用法:
     uv run python tools/selftest/geom_selftest.py
@@ -221,5 +221,5 @@ if __name__ == "__main__":
         ("⑤ 同尺寸恒等/退化", [], case_edge),
         ("⑥ click_base 端到端", [], case_click_base),
         ("⑦ 命中+偏移随窗口缩放", [], case_delta),
-        ("⑧ 用例常量口径审计(四角点/尺寸不许混)", [], case_constants),
+        ("⑧ 用例常量口径审计(唯一口径 x,y,w,h)", [], case_constants),
     ])
