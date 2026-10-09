@@ -11,8 +11,9 @@
     ③ 已在别站: 先按「返回」回列表，再选目标站
     ④ 次数用尽: 点闪击 → 弹提示 → 确认关闭 → 跳过本站（不误判成失败）
     ⑤ 局内状态机: 点技能 → 阵亡复活 → 装备UP确认 → 结算继续（判定优先级: 复活>装备UP>结算）
+    ⑤b 技能**周期性**点: 停在局内页时反复点(老写法只点一次，加载页空点后就再不补点)
     ⑥ 站内页停留 2 次**不算**打完（防战斗间隙误判）/ 连续 3 次才算打完
-    ⑦ dry 零点击零写盘；⑧ 并发锁互斥
+    ⑦ dry 零点击零写盘；⑧ 并发锁互斥；⑨ 基准→客户区坐标换算（3 个实测尺寸）
 
 用法:
     uv run python tools/selftest/boss_mode_selftest.py
@@ -27,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from wb import kit, selftest_kit as st  # noqa: E402
+from wb import battle, bot as _bot, kit, selftest_kit as st  # noqa: E402
 from wb.cfg import SHOTS_DIR, TEMPLATE_PATH  # noqa: E402
 from tools.cases import boss_mode as bm  # noqa: E402
 
@@ -47,6 +48,7 @@ UNK1 = "_diag_now.png"                           # 扫荡面板+背包已满(非
 
 # ---- 合成帧（局内战斗，用真模板贴深底）----
 IDLE = "_ts_fight_idle.png"                      # 局内空白(→点技能)
+IDLE845 = "_ts_fight_idle845.png"                 # 局内空白(845x1521: 让 match_adaptive 走 identity, 快)
 REVIVE = "_ts_fight_revive.png"                  # 阵亡复活弹窗
 EQUIPUP = "_ts_fight_equipup.png"                # 装备UP选择弹窗
 RESULT = "_ts_fight_result.png"                  # 结算页
@@ -82,7 +84,8 @@ C_PEGASUS = (256, 1097)
 C_FLASH = (308, 1418)
 C_BACK = (726, 1457)
 C_CONFIRM = (418, 913)
-C_SKILL = (740, 1300)
+C_SKILL = (723, 1297)   # 技能兜底坐标: 基准 (740,1300) 经 ref_to_client 换算到 st.RECT=812x1518
+                        # （窗口小于基准时基准坐标会点到窗口外，故实跑走的是换算后的值）
 
 
 def _sc(dry: bool = False) -> kit.Screen:
@@ -106,6 +109,10 @@ def ensure_fixtures() -> bool:
             print(f"[SKIP] 缺真帧夹具 {f}")
             return False
     made = []
+    _p845 = SHOTS_DIR / IDLE845
+    if not _p845.is_file():                        # 基准尺寸(845x1521) → 省掉多候选重采样
+        cv2.imwrite(str(_p845), np.full((1521, 845, 3), 16, np.uint8))
+        made.append(IDLE845)
     for name, tpl, cx, cy in (
         (IDLE, None, 0, 0),
         (REVIVE, "boss_revive_diamond", 200, 420),
@@ -199,6 +206,23 @@ def case_fight_flow(rp):
         f"跑完={ok} 复活={revives} 结算={rounds} 点击={rp.real_clicks}"
 
 
+def case_skill_periodic(rp):
+    """⑤b 停在局内页时技能要**按 SKILL_PERIOD 反复点**。
+
+    老写法用 skill_done 只点一次: 进局先过「资源加载中」页，那一下是空点，之后再不会补
+    → 表现为「技能没按到」。这里直接测 wb.battle.fight 本体(不是 boss_mode 薄壳)。
+
+    夹具用 845x1521(基准尺寸) 全暗帧: match_adaptive 直接走 identity 单候选(快)，
+    所以能在真实 3s 预算里跑出好几轮 → 顺带把「周期确实是 skill_period」也测了
+    (若把周期误写成 SKILL_PERIOD=5.2s，3s 内只会有 1 次点击)。
+    """
+    ok, _r, _v = battle.fight(_sc(), lambda _s: 0, skill_period=0.25, timeout=3.0,
+                              label="技能周期")
+    skills = [c for c in rp.real_clicks if c == C_SKILL]
+    return (not ok) and len(skills) >= 3, \
+        f"超时={not ok} 技能点击={len(skills)}次(期望>=3) 点击={rp.real_clicks}"
+
+
 def case_station_hits_not_enough(rp):
     """⑥a 站内页停留次数不够**不算**打完（战斗间隙会短暂回站内页）。
 
@@ -235,6 +259,26 @@ def case_lock(rp):
     return good, f"首锁={g1} 二锁={g2}(期望 False) 释放后可拿={g3}"
 
 
+def case_ref_to_client(rp):
+    """⑩ 基准坐标 → 客户区坐标换算（真值来自三次实测，不是反推）。
+
+    三个点分别是：845x1521 原帧、812x1518 模拟帧（游戏窗口实测尺寸）、601x1143 真机帧
+    （历史留下的 mh 截图）。窗口比基准小时直接拿基准坐标点会**点到窗口外**
+    （601 宽时 x=740 已出界），所以技能兑底必须走这里的换算。
+    """
+    want = [((755, 1296, 845, 1521), (755, 1296)),   # 基准 → 不变
+            ((755, 1296, 812, 1518), (738, 1293)),   # 按钮真值(模板命中量出)
+            ((755, 1296, 601, 1143), (546, 977)),    # 按钮真值(颜色环圆心量出)
+            ((740, 1300, 845, 1521), (740, 1300))]   # 兑底坐标在基准尺寸下不得动
+    bad = [(a, _bot.ref_to_client(*a), b) for a, b in want if _bot.ref_to_client(*a) != b]
+    rect_ok = _bot.ref_rect_to_client(331, 791, 34, 34, 601, 1143) == (233, 604, 25, 25)
+    if bad:
+        return False, f"不符: {bad}"
+    if not rect_ok:
+        return False, "区域换算不符 (331,791,34,34)@601x1143"
+    return True, "基准→客户区换算: 3 个实测尺寸 + 区域换算"
+
+
 SCENES = [
     ("判页专场(12 张真帧，含提示层优先)", [c[0] for c in PAGE_CASES], case_pages),
     ("导航: 首页→关卡→BOSS列表→站内", ["_guildtest_home.png", STAGE_PAGE, LIST0, STN_END], case_nav),
@@ -242,9 +286,11 @@ SCENES = [
     ("次数用尽: 提示层确认关闭后跳过本站", [LIST0, STN_END, PRM_PEG, LIST0, STN_END], case_no_attempts),
     ("局内状态机: 技能→复活→装备UP→结算", [IDLE, REVIVE, EQUIPUP, RESULT, STN_END, STN_END, STN_END],
      case_fight_flow),
+    ("局内技能周期性补点(不只是一次)", [IDLE845], case_skill_periodic),
     ("站内停留 2 次不算打完(防间隙误判)", [STN_END], case_station_hits_not_enough),
     ("站内停留 3 次算打完", [STN_END], case_station_hits_enough),
     ("dry 零点击零写盘", [STN_END], case_dry),
+    ("基准→客户区坐标换算(3 个实测尺寸)", [IDLE845], case_ref_to_client),
     ("并发锁互斥", [STN_END], case_lock),
 ]
 

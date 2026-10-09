@@ -4,7 +4,7 @@
 链路:
     首页 --(stage_btn 闯关模式)--> 关卡页 --(stage_boss)--> BOSS 列表
     --> 选空间站(boss_stn_*) --> 站内点「闪击」(boss_flash) → 对话框(boss_flash_go)
-    --> 钻石确认(boss_confirm_ok) --> 局内: 点右下角技能 → 阵亡复活(钻石20)
+    --> 钻石确认(boss_confirm_ok) --> 局内: 每 5.2s 点一次右下角技能 → 阵亡复活(钻石20)
         → 装备UP选择(取默认) → 结算页继续，直到回到站内页/列表页
 
     ⚠ 「今日可攻打次数已耗尽」提示弹窗可叠在任意页面上 → 判层时 prompt 必须最优先
@@ -12,6 +12,7 @@
     ⚠ 装备UP弹窗的绿「确认」与钻石确认弹窗的绿「确认」长得很像(0.898) → 用标题
       boss_equipup_title 判层；钻石确认键阈值抬到 0.90
     ⚠ 战斗间隙会短暂回站内页 → 连续 3 次(~6s)仍停留才算闪击真正打完
+    ⚠ 技能要每 5.2s 点一次(不是进局点一下): 进局先过「资源加载中」页，那一下是空点
     ⚠ 站内页判定里「闪击键消失」= 次数用尽，用站内独有的「装备UP」键兑现(而非当成失败)
 
 用法:
@@ -24,12 +25,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from wb import kit  # noqa: E402
+from wb import battle, kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 
 TH = 0.85
-SKILL_XY = (740, 1300)      # 局内右下角技能键(与 battle_watch.py 同源标定)
-FIGHT_TIMEOUT = 480         # 单站(闪击3次)最长等待: 每轮 40~80s + 加载缓冲
+FIGHT_TIMEOUT = 480         # 单站(闪击3次)最长等待: 每轮 40~80s + 加载缓冲(自检会改小)
 STATION_WAIT = 3.0          # 点空间站后等进站
 STATIONS = {
     "pegasus": ("boss_stn_pegasus", "战机"),
@@ -44,7 +44,7 @@ PLAN = """[dry] 计划:
   --> 选空间站(boss_stn_pegasus/drago/cygnus/andro，四站轮转)
   --> 站内「闪击」(boss_flash) --> 对话框(boss_flash_go，次数=游戏默认 3)
   --> 钻石确认(boss_confirm_ok) --> 局内
-  --> 点右下角技能(battle_skill / 坐标兜底 740,1300) → 阵亡复活(钻石20)
+  --> 每 5.2s 点一次右下角技能(battle_skill / 坐标兜底 740,1300) → 阵亡复活(钻石20)
       → 装备UP选择(boss_equipup_title → 默认项确认) → 结算页继续(boss_result_next)
   --> 回到站内页(连续 3 次停留才算打完) / 列表页
   次数用尽: 「今日可攻打次数已耗尽」提示(叠在任意页) → 确认关闭 → 跳过本站
@@ -150,66 +150,25 @@ def goto_station(sc: kit.Screen, key: str) -> bool:
             return False
         if sc.dry:                 # dry 不真点击，页面不会变，看一步就够
             log("[dry] 计划: 闯关模式 → BOSS模式 → 空间站 → 闪击 → 对话框确认 → 钻石确认"
-                " → 局内点技能 → 阵亡复活 → 装备UP → 结算继续")
+                " → 局内每 5.2s 点技能 → 阵亡复活 → 装备UP → 结算继续")
             break
     return False
 
 
 def fight(sc: kit.Screen) -> tuple[bool, int, int]:
-    """局内: 立即点技能 → 阵亡复活 → 装备UP选择 → 结算继续，直到回到站内页/列表页。
+    """局内(逻辑见 wb.battle.fight): 点技能 → 阵亡复活 → 装备UP → 结算继续。
 
-    返回 (是否跑完, 结算轮次, 复活次数)
+    退出条件 —— BOSS 列表页=确认无疑(1 次即收工)；站内页要连续 3 次(~6s)仍停留
+    才算打完(战斗间隙会短暂回站内页)。
     """
-    rounds, revives, equipups = 0, 0, 0
-    skill_done, station_hits = False, 0
-    t0 = kit.time.time()
-    while kit.time.time() - t0 < FIGHT_TIMEOUT:
-        if on_boss_list(sc):
-            log(f"已回到 BOSS 列表页 (结算 {rounds} / 复活 {revives} / 装备UP {equipups})")
-            return True, rounds, revives
-        rv = _find(sc, "boss_revive_diamond")
-        eq = _find(sc, "boss_equipup_title")      # 用标题判定，两个弹窗的绿「确认」长得很像
-        nx = _find(sc, "boss_result_next")
-        if rv is not None:
-            revives += 1
-            log(f"阵亡 → 复活(钻石20) {rv}")
-            sc.click(rv, "复活")
-            kit.nap(2.2)
-            skill_done = False                       # 复活后要再点一次技能
-        elif eq is not None:
-            equipups += 1
-            ok = _find(sc, "boss_equipup_ok") or eq
-            log(f"装备UP选择弹窗 → 确认(取默认选中项) {ok}")
-            sc.click(ok, "装备UP-确认")
-            kit.nap(2.5)
-        elif nx is not None:
-            rounds += 1
-            log(f"结算页 → 继续 {nx}  (第 {rounds} 轮)")
-            sc.click(nx, "继续")
-            kit.nap(3.5)
-            skill_done = False
-            station_hits = 0
-        elif on_station(sc):
-            # 战斗间隙会短暂回站内页，连续 3 次(~6s)仍停留才算闪击真正打完
-            station_hits += 1
-            if station_hits >= 3:
-                log(f"已回到站内页 (结算页 {rounds} 张 / 复活 {revives} / 装备UP {equipups})"
-                    " → 本轮闪击结束")
-                return True, rounds, revives
-        else:
-            station_hits = 0
-            if not skill_done:                       # 进局内第一件事: 点右下角技能
-                # 优先模板法(窗口尺寸变化后仍自适应)，模板没命中再退到坐标兜底
-                sk = _find(sc, "battle_skill", 0.90)
-                if sk is not None:
-                    sc.click(sk, "右下角技能(模板)")
-                else:
-                    sc.click_at(SKILL_XY[0], SKILL_XY[1], "右下角技能(坐标兜底)")
-                skill_done = True
-        kit.nap(2.0)
-    log(f"局内等待超时(结算 {rounds} / 复活 {revives} / 装备UP {equipups})")
-    sc.shot("fight_timeout")
-    return False, rounds, revives
+    def out_of_battle(s: kit.Screen) -> int:
+        if on_boss_list(s):
+            return 1                            # 列表页 = 真的收工了
+        if on_station(s):
+            return 3                            # 站内页可能是战斗间隙，需连续 3 次
+        return 0
+
+    return battle.fight(sc, out_of_battle, timeout=FIGHT_TIMEOUT, label="本轮闪击")
 
 
 def one_station(sc: kit.Screen, key: str) -> bool:
