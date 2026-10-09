@@ -60,6 +60,9 @@ class Replay:
 
     holds = {帧下标: 秒}: 该帧停留这么多**虚拟秒**后自动切下一帧 ——
     用来模拟「广告播完」「动画推进」这类不靠点击、靠时间推进的转移。
+
+    idx=0 也可以设 holds（帧 0 的起点在**首次取帧时**闸定，不是场景构造那一刻）——
+    早期版本的 `_enter` 初值是 0.0，导致 now-0 恒超时、holds[0] 形同没有，已修。
     """
 
     def __init__(self, frames: list[str], *, shots: Path = SHOTS_DIR,
@@ -71,7 +74,7 @@ class Replay:
         self.idx = 0
         self.holds = holds or {}
         self.clock = None                                # 由 replay() 注入虚拟时钟
-        self._enter = 0.0
+        self._enter = None                               # 当前帧的进入时刻（首次取帧时闸定）
         self._t0 = None                                  # 首次取帧的虚拟时刻（时间一律记相对值）
         self.events: list[tuple[int, int, str]] = []     # (x, y, 点击时所在帧)；截图记 x=-1
         self.times: list[float] = []                     # 与 events 对齐的**相对**虚拟秒
@@ -92,9 +95,19 @@ class Replay:
 
     # ---- 替身 ----------------------------------------------------
     def _tick(self) -> None:
+        """时间驱动：当前帧停够 holds 秒就自动翻页。
+
+        ⚠ `_enter` 首次取帧时才闸定：时钟是 `真实时间 + 虚拟` 的 **epoch 级大数**，
+        若先把 `_enter` 初始化成 0.0，则第一次 `now - 0 >= hold` 恒真 →
+        **holds[0] 的帧一取就被跳过**（实测：场景想要的「首帧停在未达标」直接失效）。
+        旧写法害得 endless 自检的场景①看着 PASS、其实没测到「未达不拖」。
+        """
         if self.clock is None:
             return
         now = self.clock()
+        if self._enter is None:                  # 首次取帧：帧起点 = 此刻
+            self._enter = now
+            return
         hold = self.holds.get(self.idx)
         if hold and now - self._enter >= hold:
             self.idx += 1
@@ -109,7 +122,7 @@ class Replay:
         self.events.append((x, y, self.frame))
         self.times.append(self._now())
         self.idx += 1
-        self._enter = self.clock() if self.clock else 0.0
+        self._enter = self.clock() if self.clock else None
 
     def drag(self, x1, y1, x2, y2, *_a, **_k):
         """拖拽替身：不碰真实鼠标，只记账（拖拽同样会改变画面 → 当作一次状态转移）。"""
@@ -118,7 +131,7 @@ class Replay:
         self.events.append((x1, y1, f'drag:{self.frame}'))
         self.times.append(self._now())
         self.idx += 1
-        self._enter = self.clock() if self.clock else 0.0
+        self._enter = self.clock() if self.clock else None
 
     def configure_mouse(self, *_a, **_k):
         return None
