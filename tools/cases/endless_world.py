@@ -473,7 +473,7 @@ def battle_watch(sc: kit.Screen) -> str:
             # 得分单调递增 → 真到 400 万就不会再掉回去；闪效误判只能骗一次。
             # 代价不对称：多等一次 ≈10s，误拖一次 ≈ 送掉一局。（2026-10-08 实跑教训）
             confirm = hit and prev_hit
-            if score is None and not na_shot:
+            if score is None and not na_shot and bscore.digit_run(f) >= 7:
                 na_shot = True
                 # 留证「读不出」的真帧：库里缺 {5,7,8} 三个字形 → 得分含这三个字时必读不出。
                 # 攒到一帧特效轻的就能拿去补齐模板（不要用特效重的帧建库，见 wb/bscore.py ③）。

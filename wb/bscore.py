@@ -160,6 +160,12 @@ def _run_cells(band: np.ndarray, k: float) -> tuple[int, list[np.ndarray]]:
     return len(run), run
 
 
+def digit_run(frame: np.ndarray) -> int:
+    """数字带里从首位起连续占用了几格（诊断/留证用，与判分同一口径）。"""
+    k = frame.shape[0] / REF_H
+    return _run_cells(_band(frame, k), k)[0]
+
+
 def read_score(frame: np.ndarray, tpl: dict[str, np.ndarray] | None = None) -> int | None:
     """读战内得分。读不出/不确定返回 None。"""
     tpl = tpl or load_templates()
