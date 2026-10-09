@@ -51,6 +51,7 @@ F = {
     "lo": "bscore_3263612.png",       # 局内 得分 3263612（< 400万）
     "hi": "bscore_4092602.png",       # 局内 得分 4092602（≥ 400万）
     "settle": "_ew_settle.png",       # 本次得分页（按钮「继续」）
+    "reward": "_ew_reward.png",       # 闪击「恭喜获得」奖励页（按钮「领取」）——2026-10-09 实跑真帧
     "win": "_ew_result_win.png",      # 战绩页 挑战胜利（按钮「返回」）
     "arena": "exp_world.png",         # 世界竞赛页（wc_title 0.981）
 }
@@ -155,6 +156,21 @@ def case_settle(rp):
     return good, f"结算→战绩: ok={ok} 点击={got} 期望≈{exp} 胜负={win}(期望 True)"
 
 
+def case_settle_reward(rp):
+    """⑧ 闪击奖励页「领取」→ 战绩页「返回」：奖励页**不许**被当成「本次得分页」。
+
+    2026-10-09 实跑就在这卡住：奖励页上 wc_settle_go(继续) 也会命中 0.951、claim_btn 0.979，
+    旧代码先判 wc_settle_go → 走错分支（真实点击坐标也对不上）。本场景锁死修正后的分支与坐标。
+    """
+    ok, win = ew.settle(_sc(), timeout=90.0)
+    got = rp.real_clicks
+    exp = [(415, 1286), (731, 1475)]           # 领取键 / 返回键（真帧实测坐标）
+    near = len(got) == len(exp) and all(abs(g[0] - e[0]) <= 8 and abs(g[1] - e[1]) <= 8
+                                        for g, e in zip(got, exp))
+    good = ok and near and win is True
+    return good, f"奖励页→战绩: ok={ok} 点击={got} 期望≈{exp} 胜负={win}(期望 True)"
+
+
 def case_settle_already(rp):
     """⑤ 已回到世界竞赛页 → settle 直接返回，一次都不点。"""
     ok, win = ew.settle(_sc(), timeout=5.0)
@@ -192,6 +208,7 @@ SCENES = [
      [F["hi"], F["lo"], F["lo"]], case_transient, {0: HOLD_HI}),
     ("局内: 全程未达标 → 超时兜底拖顶", [F["lo"]], case_never),
     ("结算页继续 → 战绩页返回", [F["settle"], F["win"]], case_settle),
+    ("奖励页领取 → 战绩页返回", [F["reward"], F["win"]], case_settle_reward),
     ("已回世界竞赛页不重复点", [F["arena"]], case_settle_already),
     ("dry 零副作用", [F["hi"]], case_dry),
     ("并发锁互斥", [F["arena"]], case_lock),

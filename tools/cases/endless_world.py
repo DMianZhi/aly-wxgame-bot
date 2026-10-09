@@ -520,12 +520,15 @@ def settle(sc: kit.Screen, timeout: float = 180.0) -> tuple[bool, bool | None]:
             sc.shot('result')
             sc.tap('wc_res_back', th=TH_KEY, wait=3.0, label='返回')
             return True, win
+        # ⚠ 2026-10-09 实测：闪击的「恭喜获得」奖励页上，底部「领取」键会让 wc_settle_go(继续)
+        # 也命中 0.951（@453,1244），而 claim_btn 更高 0.979(@415,1286)；本次得分页上 claim_btn 则不命中。
+        # ⇒ **先判 claim_btn**，否则奖励页会被当成「本次得分页」而走错分支（当天真跑就卡在这里）。
+        if sc.find('claim_btn', TH_KEY):                        # 奖励页/其它结算样式的「领取」
+            sc.tap('claim_btn', th=TH_KEY, wait=2.2, tries=1, label='领取')
+            continue
         if sc.find('wc_settle_go', TH_KEY):                     # 本次得分页
             sc.shot('settle')
             sc.tap('wc_settle_go', th=TH_KEY, wait=3.0, label='继续')
-            continue
-        if sc.find('claim_btn', TH_KEY):                        # 兼容其它结算样式
-            sc.tap('claim_btn', th=TH_KEY, wait=2.2, tries=1, label='领取')
             continue
         if sc.find('wc_title', TH_LOOSE):                       # 已回到世界竞赛页
             return True, win
