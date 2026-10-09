@@ -86,7 +86,8 @@ CASES = [
     _e("endless_world", "无尽模式-世界竞赛", DAILY, quota="6/日",
        flags="--times N --allow-capped [--dry] [--no-back]", kit=True,
        note="闪击次数用尽会自动改用「匹配」；挑战币达上限默认放弃(必须 --allow-capped 才跑)；"
-            "得分≥400万 由 wb/bscore.py 读数驱动拖顶收尾(需连续两次复核)；"
+            "得分≥400万 由 wb/bscore.py 逐字读数驱动拖顶收尾(需连续两次复核；读数不可信一律判未达)；"
+            "拖顶只在明确≥400万/对手已击败时做，超时不拖(实测拖顶不加速死亡，未达先拖＝白送一局)；"
             "回首页用 nav_home 而**非** kit.goto_home 的 ral_back（实测世界竞赛页 nav_home 0.975 vs "
             "ral_back 0.867、结算页 ral_back 0.000）；时间走 kit.now/nap（自检虚拟时钟可拦）；"
             "dry 出计划且 exit=0（点击不生效→跨页步骤不规划，无法真验流程）"),
