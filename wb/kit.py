@@ -4,6 +4,7 @@
 
 对外能力
     log / banner      统一日志前缀（[HH:MM:SS]）
+    nap / now         统一等待与时钟（离线自检可整体打桩成虚拟时钟，别直接用 time.*）
     Screen            一次截屏批量匹配（含 _v2 变体 + TEMPLATE_MIN）、等页、点击、留证、判层
     single_instance   同名用例互斥（防两个实例各点一次 → 重复花次数）
     ad_flow           广告/免广告两种形态的通用状态机（跳过卡 → 播放 → 到账 → 关闭 → 领取）
@@ -60,6 +61,19 @@ def nap(seconds: float) -> None:
     time.sleep(seconds)
 
 
+def now() -> float:
+    """当前时间戳（秒）。用例里的等待/超时**一律走这里**，别直接 time.time()。
+
+    离线自检把 wb.kit.time 换成带虚拟时钟的替身（selftest_kit._ShimTime）：它的
+    sleep 不真睡、只把时长计入 vt，now() = 真实时间 + vt。于是「局内等 210 秒」
+    这类靠时间推进的分支能在毫秒内跑完，而用例的判据逻辑一字不改。
+
+    取法很讲究：真实 time 模块**没有** now 属性 → 落到 time.time()；替身有 → 走它的
+    虚拟时钟。所以同一个 now() 在两种环境下都正确，不需要任何 if。
+    """
+    return getattr(time, "now", time.time)()
+
+
 # ---------------------------------------------------------------- 单实例锁
 
 LOCKS_DIR = APP_DIR / "shots"
@@ -77,6 +91,8 @@ def single_instance(name: str, ttl: float = 600.0, *, dry: bool = False):
         yield True
         return
     if lock.exists():
+        # 这里比的是**文件 mtime**（真实世界的时间）→ 必须用真实时钟，不能用 now()
+        # （离线自检下 now() 含虚拟偏移，会把锁年龄算错）
         age = time.time() - lock.stat().st_mtime
         if age < ttl:
             log(f"已有实例在跑(锁 {lock.name} 年龄 {age:.0f}s < {ttl:.0f}s) → 退出，避免重复操作")
@@ -132,7 +148,7 @@ class Screen:
         return int(v) if v else int(self.rect[3] - self.rect[1])
 
     def _tick(self) -> None:
-        if self.deadline is not None and time.time() > self.deadline:
+        if self.deadline is not None and now() > self.deadline:
             raise CaseTimeout("用例总时长超限")
 
     def grab(self):
@@ -185,26 +201,26 @@ class Screen:
 
     def wait(self, name: str, timeout: float, interval: float = 1.0, th: float | None = None):
         """等模板出现；超时返回 None。dry 不点击 → 不会跳页，只查一次。"""
-        end = time.time() + timeout
+        end = now() + timeout
         while True:
             hit = self.find(name, th=th)
             if hit is not None:
                 return hit
             if self.dry:
                 return None
-            if time.time() >= end:
+            if now() >= end:
                 return None
             time.sleep(interval)
 
     def wait_gone(self, name: str, timeout: float, interval: float = 1.0):
         """等模板消失；返回是否消失。dry 不点击 → 只查一次。"""
-        end = time.time() + timeout
+        end = now() + timeout
         while True:
             if self.find(name) is None:
                 return True
             if self.dry:
                 return False
-            if time.time() >= end:
+            if now() >= end:
                 return False
             time.sleep(interval)
 
@@ -354,7 +370,7 @@ def open_screen(*, dry: bool = False, th: float = TH, prefix: str = "",
         raise RuntimeError("找不到游戏窗口（游戏没开或标题变了）")
     log(f"窗口 {rect}")
     return Screen(rect, th=th, dry=dry, prefix=prefix,
-                  deadline=None if timeout is None else time.time() + timeout)
+                  deadline=None if timeout is None else now() + timeout)
 
 
 # ---------------------------------------------------------------- 首页
@@ -408,11 +424,11 @@ def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM
     page: 业务页标志模板名（领取后回到它即算成功）。
     返回 'claimed' | 'page'（没领但已回业务页）| 'timeout'。
     """
-    t0 = time.time()
+    t0 = now()
     claimed = False
-    while time.time() - t0 < timeout:
+    while now() - t0 < timeout:
         st = sc.look(AD_SKIP, claim, AD_REWARDED, AD_CLOSE, page)
-        log(f"t={time.time() - t0:5.1f} jump_no={st[AD_SKIP] is not None} "
+        log(f"t={now() - t0:5.1f} jump_no={st[AD_SKIP] is not None} "
             f"claim={st[claim] is not None} ad_reward={st[AD_REWARDED] is not None} "
             f"ad_close={st[AD_CLOSE] is not None} {page}={st[page] is not None}")
 
