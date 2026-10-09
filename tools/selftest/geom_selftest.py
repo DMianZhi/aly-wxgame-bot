@@ -170,14 +170,12 @@ def case_delta(_rp):
 
 
 def case_constants(_rp):
-    """⑧ 用例里的「实帧量出的常量」口径审计 —— 防「尺寸/四角点」混用。
+    """⑧ 用例里的「实帧量出的常量」口径审计。
 
-    背景: 常量要先进 client_to_ref 归一，但**矩形常量**有两种写法，用错就是静默失效:
-      * 四角点 (x0,y0,x1,y1) —— 消费者里会算 x1-x0
-      * 位置+尺寸 (x,y,w,h) —— 消费者直接丢给 sc.roi
-    两者混用时宽度会变成 (尺寸 - 坐标) 这种负数 → ROI 静默变空 → 「红角标恒不命中」
-    这类故障（friend_stamina 的 BADGE、star_supply 的 COUNTER 都踩过）。
-    这里对**项目里真实常量**逐个做: 在标定尺寸 812 上往返必须复原原值 + 尺寸为正。
+    全项目矩形只有**一种口径**: `(x,y,w,h)` 基准、用 `sc.roi(*r)` 消费
+    —— 以前「四角点 (x0,y0,x1,y1)」与「位置+尺寸」两种写法并存，混用时宽高会算成负数、
+    ROI 静默变空（friend_stamina 的 BADGE、star_supply 的 COUNTER 都踩过）。
+    这里对项目里**真实常量**逐个断言: 宽高为正 + 在 812 标定帧上往返恒等。
     """
     from tools.cases import (endless_world as ew, free_treasure as ft,
                              friend_stamina as fs, guild_donate as gd,
@@ -189,32 +187,20 @@ def case_constants(_rp):
         if back != want812:
             bad.append(f"{name}: {base} →812 得{back} 期望{want812}")
 
-    def rect_corners(name, r, want812):
-        """四角点 (x0,y0,x1,y1)（消费端自己算 x1-x0）。"""
-        x0, y0, x1, y1 = r
-        if x1 <= x0 or y1 <= y0:
-            bad.append(f"{name}: 四角点非正 ({x0},{y0},{x1},{y1}) —— 写成 长度 了?")
-            return
-        back = ref_to_client(x0, y0, 812, 1518) + ref_to_client(x1, y1, 812, 1518)
-        if back != want812:
-            bad.append(f"{name}: {r} →812 得{back} 期望{want812}")
-
-    def rect_wh(name, r, want812):
-        """位置+尺寸 (x,y,w,h)（消费端直接丢给 sc.roi）。"""
+    def into(name, r, want812):
+        """矩形常量：(x,y,w,h) 基准 —— 812 帧上必须复原成 want812。"""
         x, y, w, h = r
         if w <= 0 or h <= 0:
             bad.append(f"{name}: 宽高非正 ({x},{y},{w},{h}) —— ROI 会静默变空")
             return
-        bx, by = ref_to_client(x, y, 812, 1518)
-        bw, bh = map_rect(x, y, w, h, REF_SIZE, (812, 1518))[2:]
-        if (bx, by, bw, bh) != want812:
-            bad.append(f"{name}: {r} →812 得{(bx, by, bw, bh)} 期望{want812}")
+        got = map_rect(x, y, w, h, REF_SIZE, (812, 1518))
+        if got != want812:
+            bad.append(f"{name}: {r} →812 得{got} 期望{want812}")
 
-    # 四角点矩形（消费端算 x1-x0）
-    rect_corners("friend.BADGE", fs.BADGE, (590, 1358, 652, 1414))
-    rect_corners("star.COUNTER", ss.COUNTER, (700, 203, 812, 270))
-    # 位置+尺寸矩形（消费端直接给 sc.roi）
-    rect_wh("guild.CHK", gd.CHK, (331, 791, 34, 34))
+    # 矩形常量（唯一口径: (x,y,w,h) 基准，消费端 sc.roi(*r)）
+    into("friend.BADGE", fs.BADGE, (590, 1358, 62, 56))
+    into("star.COUNTER", ss.COUNTER, (700, 203, 112, 67))
+    into("guild.CHK", gd.CHK, (331, 791, 34, 34))
     # 点常量
     for i, x in enumerate((156, 299, 440, 582)):
         pt(f"sweep.MAT_ICONS[{i}]", sw.MAT_ICONS[i], (x, 345))

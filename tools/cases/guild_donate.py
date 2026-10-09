@@ -41,9 +41,8 @@ POPUP_WAIT = 10.0    # 点支付键后等「恭喜获得」/确认弹窗的最�
 BACK_WAIT = 10.0     # 点领取后等回捐献页的最长秒数
 CLICK_TRIES = 3      # 支付键最多点几次(丢点击重试; 重试前必查状态, 不会重复捐)
 # 勾选框内框(颜色判态)。坐标是在 812x1518 实帧 _guildtest_dialog{,_chk}.png 上量的:
-# 两帧唯一差异连通块 = 53x53 中心(345,809)，框内 34x34 即 (331,791) → 归一到基准(347,792)。
-_x, _y = _bot.client_to_ref(331, 791, 812, 1518)
-CHK = (_x, _y, 34, 34)
+# 两帧唯一差异连通块 = 53x53 中心(345,809)，框内 34x34 即 (331,791)。
+CHK = _bot.measured_rect(331, 791, 34, 34, (812, 1518))
 ALL_MAX = 9          # --all 的上限(真上限由「点后没弹层」兜住, 这里只防死循环)
 
 HOME, GUILD, DONATE, POPUP, DIALOG, NOCNT, UNKNOWN = ("HOME", "GUILD", "DONATE", "POPUP",

@@ -187,6 +187,7 @@ def match_template(screen: np.ndarray, tpl: np.ndarray, threshold: float):
 #   845x1521 → 813x1519 时画布只缩了 0.13%，裸匹配仍能到 0.96，但落点整体左移约 15px。
 # 所以匹配前先把画面重采样回基准尺寸，命中坐标再反映射回真实客户区。
 REF_SIZE: tuple[int, int] = (845, 1521)
+MEASURED: tuple[int, int] = (812, 1518)   # 项目里绝大多数真帧的尺寸（常量多在此帧上量出）
 CLIENT_TITLE_H = 77             # 微信小游戏顶部自绘标题栏高度（固定设备像素，不随窗口缩放）
 _GEOM_HINT: dict[tuple[int, int], int] = dict()  # (W,H) -> 上次命中的候选序号（下次先用它）
 _SIZE_NOTED: set[tuple[int, int]] = set()     # 已提示过的尺寸，只提示一次
@@ -252,6 +253,18 @@ def ref_rect_to_client(x: int, y: int, w: int, h: int,
                        cw: int, ch: int) -> tuple[int, int, int, int]:
     """基准矩形 -> 当前客户区矩形（供像素判态/区域裁剪用），宽高按同一 s 缩放。"""
     return map_rect(x, y, w, h, REF_SIZE, (cw, ch))
+
+
+def measured_rect(x: int, y: int, w: int, h: int,
+                  frame: tuple[int, int]) -> tuple[int, int, int, int]:
+    """在 frame 这张实帧上量出的矩形 (x,y,w,h) -> **基准矩形**。
+
+    矩形在全项目只有**一种口径**: `(x, y, 宽, 高)`、基准空间、用 `sc.roi(*r)` 消费。
+    以前允许「四角点 (x0,y0,x1,y1)」并存，消费端写 `sc.roi(x0,y0,x1-x0,y1-y0)` ——
+    两种写法混用时会算出负数宽高、ROI 静默变空（friend_stamina / star_supply 都踩过）。
+    把「取宽高」这一步收进这里，调用点就再也没有手算的机会。
+    """
+    return map_rect(x, y, w, h, frame, REF_SIZE)
 
 
 def _resize_candidates(w: int, h: int) -> list[tuple[int, int]]:

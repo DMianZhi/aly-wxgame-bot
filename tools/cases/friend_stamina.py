@@ -38,10 +38,8 @@ TH_BTN = 0.90        # 一键收赠键（fr_onekey 判别力极强: 86 帧仅本
 TH_POP = 0.90        # 回礼弹窗标志（fr_gift_title 次高才 0.362）
 TH_OK = 0.88         # 弹窗里的绿「确认」/ X
 TH_BACK = 0.85       # 「返回」键（wc_res_back 在好友页 1.000，复用现成模板）
-BADGE = (_bot.client_to_ref(590, 1358, 812, 1518)
-         + _bot.client_to_ref(652, 1414, 812, 1518))
-# ↑ 一键收赠键右上红角标区。**(x0,y0,x1,y1) 四角点、基准口径** —— 与下面 has_badge 的
-#   `sc.roi(x0,y0,x1-x0,y1-y0)` 配套；量自 812x1518 实帧(见 bot.client_to_ref)。
+BADGE = _bot.measured_rect(590, 1358, 62, 56, (812, 1518))
+# ↑ 一键收赠键右上红角标区 (x,y,w,h)。量自 812x1518 实帧（两帧差异 blob 的外框）。
 BADGE_MIN = 200      # 红像素 > 200 判定「有角标」（实测有=917 / 无=0）
 POP_WAIT = 6.0       # 点完等回礼弹窗的最长秒数（实测 1.2s 内出现）
 BACK_WAIT = 8.0      # 点确认/返回后等页面稳定的最长秒数
@@ -66,8 +64,7 @@ def has_badge(sc: kit.Screen) -> bool:
     实测: 有角标 = 该区红像素 917; 收赠后 = 0; 弹窗压暗时 = 0。
     纯色小方块模板在这里会误命中，故走像素计数。
     """
-    x0, y0, x1, y1 = BADGE
-    roi = sc.roi(x0, y0, x1 - x0, y1 - y0).astype(int)
+    roi = sc.roi(*BADGE).astype(int)
     if roi.size == 0:
         return False
     b, g, r = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
