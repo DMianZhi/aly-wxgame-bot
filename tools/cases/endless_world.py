@@ -63,6 +63,7 @@ import numpy as np                           # noqa: E402
 from wb import bscore                        # noqa: E402
 from wb import bot as _bot                   # noqa: E402
 from wb import digits                        # noqa: E402
+from wb import icount                        # noqa: E402
 from wb import kit                           # noqa: E402
 from wb.cfg import SHOTS_DIR                 # noqa: E402
 from wb.kit import log                       # noqa: E402
@@ -257,9 +258,14 @@ def find_buy_btn(sc: kit.Screen, row_y: int, tol: int = 80):
 
 
 def buy_items(sc: kit.Screen) -> int:
-    """按 BUY_ANCHORS 各买 need 件（锚点锁行 → 同行绿键定位价格键）。返回成功种数。"""
+    """按 BUY_ANCHORS 把道具补到 need 件（**已有 ≥need 就不买**，省 💎/💰）。
+
+    持有数读图标左上角的金色徽标（wb/icount.py，实测该徽标=持有数）。
+    找不到徽标 → 当作 0 件照买（旧行为）；徽标认不出 → 保守不买并存图留证。
+    返回成功处理的道具种数。
+    """
     ok = 0
-    for anchor, label, need, thr in BUY_ANCHORS:
+    for anchor, label, want, thr in BUY_ANCHORS:
         c = None
         for _ in range(4):
             c = sc.find(anchor, thr)
@@ -270,8 +276,18 @@ def buy_items(sc: kit.Screen) -> int:
         if not c:
             log(f"✗ 定位不到 {label}（滑到底仍不可见）")
             continue
-        log(f"  买 {label} ×{need}（锚点 y={c[1]}）")
-        for k in range(need):
+        n, conf, found = icount.held(sc.grab(), c[1])
+        if found and n is None:                 # 徽标在但认不出 → 保守不买（图已存 shots/_icount_unknown_*）
+            log(f"  ⚠ {label} 徽标认不出（conf={conf:.2f}）→ 保守不买")
+            ok += 1
+            continue
+        buy_n = icount.need(n, want)             # 唯一一处「≥want 不买」策略（icount 自检覆盖）
+        if buy_n == 0:
+            log(f"  ✔ {label} 已有 {n} 件（≥{want}）→ 不买，省钱")
+            ok += 1
+            continue
+        log(f"  买 {label} ×{buy_n}（持有 {n if n is not None else '无徽标→按0'}，锚点 y={c[1]}）")
+        for k in range(buy_n):
             by = find_buy_btn(sc, c[1]) or c[1]
             # 价格键 x 是基准常量，y 来自帧内检测（已是客户区行）→ 只换算 x
             sc.click_at(_bot.ref_to_client(BUY_X, 0, sc.w, sc.h)[0], by,

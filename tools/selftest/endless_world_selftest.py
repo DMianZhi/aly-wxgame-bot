@@ -200,6 +200,76 @@ def case_lock(rp):
     return good, f"首锁={g1} 二锁={g2}(期望 False) 释放后可拿={g3}"
 
 
+# ------------------------------------------------- 买道具：≥3 不买（真帧徽标读数）
+class _PrepStub:
+    """只实现 buy_items 用到的那几个接口；grab() 回真帧 → 徽标读数走真代码。"""
+
+    def __init__(self, frame, rows):
+        self.frame, self.rows = frame, rows
+        self.clicks: list[tuple[int, int, str]] = []
+        self.drags: list[tuple] = []
+        self.h, self.w = frame.shape[:2]
+        self.rect = st.RECT
+
+    def find(self, name, th=None):
+        return self.rows.get(name)
+
+    def grab(self):
+        return self.frame
+
+    def click_at(self, x, y, what):
+        self.clicks.append((x, y, what))
+
+    def drag_base(self, *a, **k):
+        self.drags.append(a)
+
+
+PREP = "_endless_r1_prep.png"                  # 战前准备真帧：炽焰冲击 9 / 烈火 13 / 圣光 1 / 灰烬 10
+PREP_ROWS = {"prep_it_flame": (702, 525), "prep_it_fire": (702, 679), "prep_row_ash": (702, 987)}
+_FRAME: dict[str, object] = {}
+
+
+def _prep_frame():
+    if "f" not in _FRAME:
+        import cv2
+        _FRAME["f"] = cv2.imread(str(st.SHOTS_DIR / PREP))
+    return _FRAME["f"]
+
+
+def case_buy_enough(rp):
+    """⑨ 真帧徽标 ≥3 → 三个道具一件都不买（本次需求核心：别白花 💎/💰）。
+
+    徽标数取自真帧（走 wb/icount.py 真读数，不桩），预期待买三件 = 9/13/10 全 ≥3。
+    """
+    stub = _PrepStub(_prep_frame(), PREP_ROWS)
+    ew.buy_items(stub)
+    vals = [ew.icount.held(_prep_frame(), y)[0] for _, y in PREP_ROWS.values()]
+    good = not stub.clicks and all(v is not None and v >= 3 for v in vals)
+    return good, f"持有{vals} → 点击 {stub.clicks}（期望空=不买）"
+
+
+def case_buy_short(rp):
+    """⑩ 不足才买：持有 1 → 各补 2 次；徽标认不出 → 保守一次不点；无徽标 → 按 0 件各买 3 次。"""
+    orig = ew.icount.held
+    lines, bad = [], 0
+    plan = [((1, 0.9, True), 2, "持有 1 件"), ((None, 0.5, True), 0, "认不出"), ((None, 0.0, False), 3, "无徽标")]
+    try:
+        for ret, each, tag in plan:
+            ew.icount.held = lambda *a, **k: ret
+            stub = _PrepStub(_prep_frame(), PREP_ROWS)
+            ew.buy_items(stub)
+            want_n = 3 * each
+            okk = len(stub.clicks) == want_n
+            xs = {c[0] for c in stub.clicks}
+            if okk and stub.clicks:
+                okk = len(xs) == 1                # 同一价格键 x（只换算 x，y 取帧内检测）
+            bad += 0 if okk else 1
+            lines.append(f"{tag}→{len(stub.clicks)}次(期望{want_n}){'✓' if okk else '✗'}")
+    finally:
+        ew.icount.held = orig
+    return bad == 0, " ".join(lines)
+
+
 SCENES = [
     # 第 4 项 = 本场景专用 holds：{帧号: 停多少虚拟秒后自动翻页}
     ("局内: 未达不拖 → 达标复核两次才拖",
@@ -212,6 +282,8 @@ SCENES = [
     ("已回世界竞赛页不重复点", [F["arena"]], case_settle_already),
     ("dry 零副作用", [F["hi"]], case_dry),
     ("并发锁互斥", [F["arena"]], case_lock),
+    ("买道具: 持有≥3 不买（真帧徽标）", [PREP], case_buy_enough),
+    ("买道具: 不足才买/认不出不买", [PREP], case_buy_short),
 ]
 
 

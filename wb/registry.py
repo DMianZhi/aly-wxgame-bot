@@ -86,6 +86,8 @@ CASES = [
     _e("endless_world", "无尽模式-世界竞赛", DAILY, quota="6/日",
        flags="--times N --allow-capped [--dry] [--no-back]", kit=True,
        note="闪击次数用尽会自动改用「匹配」；挑战币达上限默认放弃(必须 --allow-capped 才跑)；"
+            "战前准备买道具前先读图标左上角金徽标的持有数(wb/icount.py，实测徽标=持有数)："
+            "已有 ≥3 不买(省钱)，1/2 补到 3，无徽标按 0 照买，徽标认不出保守不买(存图留证)；"
             "得分≥400万 由 wb/bscore.py 逐字读数驱动拖顶收尾(需连续两次复核；读数不可信一律判未达)；"
             "拖顶时机：明确≥400万(复核两次)或超时兜底(保留原设计)；判分收紧后不再出现假阳性提前拖；"
             "回首页用 nav_home 而**非** kit.goto_home 的 ral_back（实测世界竞赛页 nav_home 0.975 vs "
