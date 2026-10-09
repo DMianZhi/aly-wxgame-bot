@@ -339,33 +339,69 @@ def _burst_stop(t: dict, tag: str | None = None):
     return x0, y0, x1, y1, path
 
 
+def _left_prep(sc: kit.Screen) -> bool:
+    """是否已走出「战前准备 → 闪击面板 → 道具不足弹框」这串页面（= 进局了）。
+
+    实跑实测的页面链（2026-10-09，证据 shots/_endless_r2_prep.png 与 _endless_fdlg.png）:
+        战前准备页（prep_title / prep_flash）--点「闪击」--> 闪击面板（fdlg_go）
+        --点面板大「闪击」--> 「部分战斗道具数量不足」弹框（fdlg_cnt_title）
+        --点绿「确认」--> 进局
+    任何一环的锚点还在，就说明没进局；局内右下技能键 battle_skill 在屏则直接判进局。
+    """
+    if sc.find('battle_skill', 0.90):                 # 局内锚点（wb/battle.py 同款）
+        return True
+    return not (sc.find('fdlg_cnt_title', TH_KEY)     # 道具不足弹框
+                or sc.find('prep_flash', TH_KEY)      # 战前准备页·「闪击」按钮
+                or sc.find('prep_title', TH_KEY)      # 战前准备页·标题
+                or sc.find('fdlg_go', TH_KEY))        # 闪击面板·大「闪击」按钮
+
+
 def do_flash(sc: kit.Screen) -> str:
     """点「闪击」进局。
 
     返回 'ok'（已进局）/ 'rejected'（游戏侧无闪击次数，抓到瞬闪提示）
         / 'no_btn'（没有闪击按钮）/ 'no_effect'（点了没反应）。
+
+    ⚠ 2026-10-09 实跑暴露的真 bug（用例自带，非迁移引入）:
+      ① 「部分战斗道具数量不足，无法生效 是否继续闪击?」确认框是**点下闪击面板上
+         那颗大「闪击」按钮之后**才弹的。旧写法把它放在「第一下点击之前」检查 →
+         永远查不到 → 弹框无人处理 → 用例以为「已进局」，对着准备页空转满 210s
+         （日志里连续「得分=读不出」就是它）。
+      ② `fdlg_title` 截的是**页面标题**「闪击·世界竞赛」而非对话框标题 → 在战前准备页
+         恒命中(0.995)，把「有没有弹框」误判成「有」，连带「点了没反应/瞬闪提示」分支
+         被跳过（当时日志里一句提示都没打，才这么难查）。现在不再用它。
+      ③ 进局不再「点完就当成功」，而是看 `_left_prep()`（局内锚点或三个准备页锚点全消失）。
     """
     if not sc.find('prep_flash', TH_KEY):
         log('✗ 战前准备页没有「闪击」按钮')
         return 'no_btn'
     burst = _burst_start(sc)
     kit.nap(0.35)
-    sc.tap('prep_flash', th=TH_KEY, wait=2.2, label='闪击')
+    # 状态机（每步后复查是否已进局）:
+    #   战前准备页 → 点「闪击」；闪击面板 → 点大「闪击」；道具不足弹框 → 点绿「确认」
+    for _ in range(6):
+        if sc.find('fdlg_cnt_title', TH_KEY):
+            log('  出现「部分战斗道具数量不足」确认框 → 点「确认」继续闪击')
+            sc.tap('fdlg_cnt_ok', th=TH_KEY, wait=2.2, label='确认继续闪击')
+        elif sc.find('prep_flash', TH_KEY):
+            sc.tap('prep_flash', th=TH_KEY, wait=2.2, label='闪击(战前准备页)')
+        elif sc.find('fdlg_go', TH_KEY):
+            sc.tap('fdlg_go', th=TH_KEY, wait=2.5, label='闪击(闪击面板)')
+        else:
+            break                                     # 三个锚点都不在 → 已进局
+        if _left_prep(sc):
+            break
     sc.shot('fdlg')
-    if sc.find('fdlg_cnt_title', TH_KEY):                      # 部分道具不足确认框
-        log('  出现「部分战斗道具数量不足」确认框')
-        sc.tap('fdlg_cnt_ok', th=TH_KEY, wait=2.0, label='确认继续闪击')
-    elif not sc.find('fdlg_title', TH_LOOSE):
-        t = _burst_stop(burst, 'endless_flash')
-        if t:
-            log(f'⚠ 闪击被拒：瞬闪提示 bbox=({t[0]},{t[1]})-({t[2]},{t[3]})，证据 {t[4]}')
-            log('  → 世界竞赛闪击次数已用尽（每天 0 点重置），按设定改用「匹配」')
-            return 'ok' if do_match(sc) else 'rejected'
-        if sc.find('prep_title', TH_KEY):
-            log('⚠ 点了闪击但页面无变化、也没抓到提示（窗口可能被遮挡）')
-            return 'no_effect'
-    _burst_stop(burst)
-    return 'ok' if sc.tap('fdlg_go', th=TH_KEY, wait=3.0, label='闪击(对话框)') else 'no_effect'
+    if _left_prep(sc):
+        _burst_stop(burst)
+        return 'ok'
+    t = _burst_stop(burst, 'endless_flash')
+    if t:
+        log(f'⚠ 闪击被拒：瞬闪提示 bbox=({t[0]},{t[1]})-({t[2]},{t[3]})，证据 {t[4]}')
+        log('  → 世界竞赛闪击次数已用尽（每天 0 点重置），按设定改用「匹配」')
+        return 'ok' if do_match(sc) else 'rejected'
+    log('⚠ 点了闪击但页面无变化、也没抓到提示（窗口可能被遮挡？）')
+    return 'no_effect'
 
 
 def do_match(sc: kit.Screen, timeout: float = 55.0) -> bool:

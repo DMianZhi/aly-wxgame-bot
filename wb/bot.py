@@ -385,21 +385,37 @@ def _ensure_foreground(rect: WinRect) -> None:
 
     SetForegroundWindow 对后台进程常静默失败(实测点广告关闭时点了个空)，
     所以先 SetWindowPos 提到 z 序顶再重试几次；窗口最小化才 ShowWindow 还原。
+    重试仍失败则升级到 **ALT 键技巧**：Windows 前台锁只允许「刚刚有过输入」的进程
+    抢前台，假按一下 ALT 就能骗过它。
+
+    ⚠ 2026-10-09 实跑教训：endless 用例老代码自带一版 `_focus()`(就是这个 ALT 技巧)，
+    迁移时我一度判定它「冗余（click_xy 已调 _ensure_foreground）」而删掉 —— 结果第 1 轮
+    的点击被静默丢掉（日志只有那句 warn，页面没动，白跑一轮）。孤本技巧不能想当然删。
     """
     user32 = ctypes.windll.user32
     if user32.GetForegroundWindow() == rect.hwnd:
         return
     SW_RESTORE, HWND_TOP = 9, 0
     SWP_NOSIZE, SWP_NOMOVE = 0x0001, 0x0002
+    VK_MENU, KEYEVENTF_KEYUP = 0x12, 0x0002
     if user32.IsIconic(rect.hwnd):
         user32.ShowWindow(rect.hwnd, SW_RESTORE)
     user32.SetWindowPos(rect.hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE)
-    for _ in range(6):
+    for i in range(6):
         user32.SetForegroundWindow(rect.hwnd)
-        time.sleep(0.25)
+        time.sleep(0.2)
         if user32.GetForegroundWindow() == rect.hwnd:
             time.sleep(0.15)
             return
+        if i == 2:                                  # 常规重试已连续失败 → 上 ALT 键技巧
+            user32.keybd_event(VK_MENU, 0, 0, 0)
+            user32.ShowWindow(rect.hwnd, SW_RESTORE)
+            user32.SetForegroundWindow(rect.hwnd)
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.35)
+            if user32.GetForegroundWindow() == rect.hwnd:
+                time.sleep(0.15)
+                return
     print("[warn] 游戏窗口未能置于前台，点击可能落在其他窗口上；请手动点一下游戏窗口")
 
 
