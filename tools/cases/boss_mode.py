@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 """用例: BOSS 闪击（四站轮转，每站 3 次/轮，阵亡钻石复活）。
 
-链路:
+    链路:
     首页 --(stage_btn 闯关模式)--> 关卡页 --(stage_boss)--> BOSS 列表
     --> 选空间站(boss_stn_*) --> 站内点「闪击」(boss_flash) → 对话框(boss_flash_go)
+
+    ⚠ 每站闪击 3 次是**游戏默认次数**(对话框里就是 3，不用传)→ 「2 站 × 3 次 = 6 次/天」
+      默认只跑「战机 + 装甲」两站(日常够用)；副武器/僚机用 --station 显式指名再跑。
     --> 钻石确认(boss_confirm_ok) --> 局内: 每 5.2s 点一次右下角技能 → 阵亡复活(钻石20)
         → 装备UP选择(取默认) → 结算页继续，直到回到站内页/列表页
 
@@ -16,7 +19,10 @@
     ⚠ 站内页判定里「闪击键消失」= 次数用尽，用站内独有的「装备UP」键兑现(而非当成失败)
 
 用法:
-    uv run python tools/cases/boss_mode.py [--station pegasus|drago|cygnus|andro] [--dry]
+    uv run python tools/cases/boss_mode.py [--station 战机,装甲|cygnus,andro|all] [--dry]
+
+    默认 = 战机 + 装甲(6 次/天)；--station 逗号分隔，key 或中文名都行，
+    all / default 为便捷值。副武器/僚机留给以后按需跑。
 """
 from __future__ import annotations
 
@@ -37,11 +43,44 @@ STATIONS = {
     "cygnus":  ("boss_stn_cygnus",  "副武器"),
     "andro":   ("boss_stn_andro",   "僚机"),
 }
+# 每天默认只跑这两站(每站 3 次 → 共 6 次/天)；副武器/僚机用 --station 显式指名。
+DEFAULT_STATIONS = ("pegasus", "drago")
+# 中文名/便捷值 → key
+_STATION_ALIAS = {name: key for key, (_, name) in STATIONS.items()}
 BOSS_LIST_MARKS = ("boss_stn_pegasus", "boss_stn_drago", "boss_hyper")
+
+
+def parse_stations(raw: str | None) -> list[str]:
+    """解析 --station: 逗号/顿号/空格分隔，支持 key 与中文名；空/ default → 默认两站。
+
+    例: --station cygnus,andro / --station 副武器,僚机 / --station all
+    """
+    txt = (raw or "").strip()
+    if not txt or txt.lower() in ("default", "默认"):
+        return list(DEFAULT_STATIONS)
+    if txt.lower() in ("all", "*", "全部"):
+        return list(STATIONS)
+    keys: list[str] = []
+    bad: list[str] = []
+    for tok in txt.replace("，", ",").replace("、", ",").replace(" ", ",").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        k = tok if tok in STATIONS else _STATION_ALIAS.get(tok)
+        if k is None or k in keys:
+            if k is None:
+                bad.append(tok)
+            continue
+        keys.append(k)
+    if bad:
+        raise SystemExit(
+            f"未知 --station {bad[0]}（可选: {', '.join(STATIONS)} / 中文名 "
+            f"{'/'.join(_STATION_ALIAS)} / all / default）")
+    return keys or list(DEFAULT_STATIONS)
 
 PLAN = """[dry] 计划:
   首页 --(stage_btn 闯关模式)--> 关卡页 --(stage_boss)--> BOSS 列表
-  --> 选空间站(boss_stn_pegasus/drago/cygnus/andro，四站轮转)
+  --> 选空间站(默认 战机+装甲 两站 = 6 次/天；--station 可指名 副武器/僚机 或 all)
   --> 站内「闪击」(boss_flash) --> 对话框(boss_flash_go，次数=游戏默认 3)
   --> 钻石确认(boss_confirm_ok) --> 局内
   --> 每 5.2s 点一次右下角技能(battle_skill / 坐标兜底 740,1300) → 阵亡复活(钻石20)
@@ -239,10 +278,9 @@ def one_station(sc: kit.Screen, key: str) -> bool:
 
 
 def run(sc: kit.Screen, args: kit.Args) -> bool:
-    keys = [args.extra["station"]] if "station" in args.extra else list(STATIONS)
-    bad = [k for k in keys if k not in STATIONS]
-    if bad:
-        raise SystemExit(f"未知 --station {bad[0]} (可选: {', '.join(STATIONS)})")
+    keys = parse_stations(args.extra.get("station"))
+    log(f"本次站点({len(keys)}): " + "、".join(STATIONS[k][1] for k in keys)
+        + f" → 最多 {len(keys) * 3} 次闪击")
 
     if sc.dry:
         p = page(sc)
