@@ -2,7 +2,7 @@
 """用例: 导弹猎场「闪击」（活动关卡页，每日免费次数，消耗体力）。
 
 链路:
-    首页 --(stage_btn 闯关模式)--> 关卡页 --(act_entry 活动关卡)--> 活动关卡页
+    首页 --(stage_btn 闯关模式)--> 关卡页 --(stage_event_lv 活动关卡)--> 活动关卡页
     --(导弹猎场卡片右下「闪击」mh_flash)--> 闪击对话框(mh_dlg_title)
     --(mh_dlg_go「闪击」)--> 局内 --(每 5.2s 点技能 → 阵亡复活 → 装备UP → 结算继续)-->
     回到活动关卡页
@@ -32,13 +32,15 @@ from wb.kit import log  # noqa: E402
 
 TH = 0.85
 FIGHT_TIMEOUT = 480         # 单轮(对话框里默认 2 次闪击)最长等待(自检会改小)
+NAV_WAIT = 3.0              # 导航点击后等画面稳定
+UNKNOWN_TOLERATE = 3        # 连续几次 unknown 才认输(关卡页空载帧可达数秒)
 NAV_WAIT = 2.5              # 点完导航键等页面切换
 FLASH_OFF = (301, 176)      # 导弹猎场卡标题 → 该卡「闪击」键的偏移(量自 601x1143 实帧)
 FLASH_CALIB = (601, 1143)   # 上面那个偏移的标定帧尺寸
 FLASH_TOL = 60              # 模板命中与锚点预测的最大距离(超过就认为命中的是另一张卡)
 
 PLAN = """[dry] 计划:
-  首页 --(stage_btn 闯关模式)--> 关卡页 --(act_entry 活动关卡)--> 活动关卡页
+  首页 --(stage_btn 闯关模式)--> 关卡页 --(stage_event_lv 活动关卡)--> 活动关卡页
   --> 导弹猎场卡片(标题 mh_title 锚定 + 偏移 301,176)「闪击」(mh_flash)
   --> 闪击对话框(mh_dlg_title): 次数=游戏默认(2 次/⚡80，**不擅改**)
   --> 点「闪击」(mh_dlg_go) → 局内: 每 5.2s 点一次技能(battle_skill / 坐标兜底)
@@ -66,6 +68,12 @@ def page(sc: kit.Screen) -> str:
     顺序即优先级，两条都是踩过的坑:
       * prompt 最优先 —— 次数已耗尽弹窗会叠在活动关卡页上，不先认它就会误判成 actpage
       * dialog 先于 actpage —— 对话框背后那张卡的 mh_flash 仍能命中(0.997)
+
+    ⚠ 关卡页判定用 **stage_event_lv**（活动关卡按钮的规范模板），不能用旧的 act_entry:
+      act_entry 是手裁的 117 高模板，把按钮**上方的关卡编号(如「142」)**也框了进去 ——
+      编号会随章节推进变化，换一关就从 0.99 掉到 0.833 < 0.85 门槛 → 判层 unknown、
+      导航直接失败（2026-10-09 实测）。stage_event_lv 只框按钮本体(218x62，起点在编号下方)，
+      实测 真机 0.986 / 601 夹具 0.979 / 非关卡页 ≤0.543。
     """
     if _find(sc, "boss_noattempts") is not None:
         return "prompt"
@@ -73,7 +81,7 @@ def page(sc: kit.Screen) -> str:
         return "dialog"
     if on_actpage(sc):
         return "actpage"
-    if _find(sc, "act_entry") is not None:
+    if _find(sc, "stage_event_lv") is not None:
         return "stage"
     if _find(sc, "stage_btn") is not None:
         return "home"
@@ -129,21 +137,24 @@ def pick_flash(sc: kit.Screen):
 
 def goto_actpage(sc: kit.Screen) -> bool:
     """从首页/关卡页/已在活动关卡页都能到活动关卡页。"""
-    for _ in range(5):
+    unknown = 0
+    for _ in range(8):
         p = page(sc)
         log(f"当前页面: {p}")
         if p == "prompt":
             close_prompt(sc)
+            unknown = 0
         elif p in ("actpage", "dialog"):    # 对话框=已经过了活动关卡页那一步
             return True
         elif p == "stage":
-            e = _find(sc, "act_entry")
+            e = _find(sc, "stage_event_lv")
             if e is None:
-                log("关卡页找不到「活动关卡」入口(act_entry)")
+                log("关卡页找不到「活动关卡」入口(stage_event_lv)")
                 sc.shot("no_entry")
                 return False
-            sc.click(e, "活动关卡(act_entry)")
+            sc.click(e, "活动关卡(stage_event_lv)")
             kit.nap(NAV_WAIT)
+            unknown = 0
         elif p == "home":
             b = _find(sc, "stage_btn")
             if b is None:
@@ -151,10 +162,18 @@ def goto_actpage(sc: kit.Screen) -> bool:
                 return False
             sc.click(b, "闯关模式(stage_btn)")
             kit.nap(NAV_WAIT)
+            unknown = 0
         else:
-            log("未知页面(非首页/关卡页/活动关卡页) → 请人工确认")
-            sc.shot("unknown")
-            return False
+            # ⚠ 关卡页/首页资源未加载完时有数秒「空载帧」: 单帧判层必误判 unknown。
+            #   2026-10-09 实测: 点「闯关模式」7s 后仍判 unknown, 但**同一刻**的留证截图
+            #   已完整渲染(章节/入口全在)。→ unknown 不当终局, 等一轮重判。
+            unknown += 1
+            if unknown >= UNKNOWN_TOLERATE:
+                log("未知页面(非首页/关卡页/活动关卡页) → 请人工确认")
+                sc.shot("unknown")
+                return False
+            log(f"页面未就绪(unknown 第 {unknown} 次) → 等 {NAV_WAIT}s 重判")
+            kit.nap(NAV_WAIT)
         if sc.dry:
             log("[dry] 计划: 闯关模式 → 活动关卡 → 导弹猎场闪击 → 对话框 → 局内")
             break

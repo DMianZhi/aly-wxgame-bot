@@ -35,7 +35,7 @@ from tools.cases import missile_hunt as mh  # noqa: E402
 
 # ---- 真帧（实跑截下，601x1143）----
 HOME0 = "__mhmh00_home.png"          # 首页
-STAGE0 = "__mhmh01_stage.png"        # 关卡页(act_entry 活动关卡入口)
+STAGE0 = "__mhmh01_stage.png"        # 关卡页(stage_event_lv 活动关卡入口)
 ACTPAGE = "__mhmh05_actpage.png"     # 活动关卡页(陨石陷阱 + 导弹猎场 两张卡)
 DLG = "__mhmh06_flashdlg.png"        # 闪击对话框
 BATTLE = "__mhmh08_state_-.png"      # 局内
@@ -48,7 +48,7 @@ ACT845 = "_ts_mh_act845.png"         # 活动关卡页(贴真卡标题) — 收�
 
 # 金标准坐标: 全部**从夹具帧实测**，不是手填
 C_STAGE_BTN = (462, 1045)    # stage_btn @ 首页(601x1143)
-C_ACT_ENTRY = (393, 1063)    # act_entry @ 关卡页
+C_ACT_ENTRY = (391, 1095)    # stage_event_lv @ 关卡页（实测 0.979）
 C_FLASH_MH = (421, 1003)     # mh_flash @ 活动关卡页 → 导弹猎场那张卡(靠下的)
 C_FLASH_OTHER = (421, 455)   # 同款按键 @ 陨石陷阱那张卡(靠上的) → 必须**不**选它
 C_CONFIRM = (313, 696)       # boss_confirm_ok @ 次数耗尽提示
