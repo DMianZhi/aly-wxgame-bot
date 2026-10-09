@@ -124,20 +124,24 @@ def case_first_miss(rp):
 
 
 def case_transient(rp):
-    """② 闪效假阳性回归：首个读数就达标、之后回落 → **一次都不许拖**（超时也不拖）。"""
+    """② 闪效假阳性回归：首个读数就达标、之后回落 → 绝不提前拖，只等超时兜底拖。"""
     why, reads, drags = battle(_sc())
+    t0 = min(drags) if drags else -1.0
     hit_first = bool(reads) and reads[0][1]
     fell_back = any(not v for _, v in reads)
-    good = (why == "timeout" and not rp.drags and hit_first and fell_back)
-    return good, (f"一瞬达标后回落: 结束={why}(期望 timeout) 拖拽={len(rp.drags)}次(期望 0) "
-                  f"首读数达标={hit_first} 回落={fell_back}")
+    good = (why == "finish" and len(rp.drags) == 2 and hit_first and fell_back
+            and t0 >= BM - 1)
+    return good, (f"一瞬达标后回落: 结束={why} 拖拽={len(rp.drags)}次 首读数达标={hit_first} "
+                  f"回落={fell_back} 首拖 t≈{t0:.0f}s(要求 ≥{BM - 1:.0f}s = 只走超时兜底)")
 
 
 def case_never(rp):
-    """③ 全程未达标 → 超时也不拖顶（拖顶＝提前送死风险，不是兜底动作）。"""
+    """③ 全程未达标 → 只能由超时兜底收尾（拖顶是兜底动作，不是提前送死）。"""
     why, reads, drags = battle(_sc())
-    good = (why == "timeout" and not rp.drags and not any(v for _, v in reads))
-    return good, f"全程未达: 结束={why}(期望 timeout) 拖拽={len(rp.drags)}次(期望 0)"
+    t0 = min(drags) if drags else -1.0
+    good = (why == "finish" and len(rp.drags) == 2
+            and not any(v for _, v in reads) and t0 >= BM - 1)
+    return good, f"全程未达: 结束={why} 拖拽={len(rp.drags)}次 首拖 t≈{t0:.0f}s(要求超时兜底)"
 
 
 def case_settle(rp):
@@ -184,9 +188,9 @@ SCENES = [
     # 第 4 项 = 本场景专用 holds：{帧号: 停多少虚拟秒后自动翻页}
     ("局内: 未达不拖 → 达标复核两次才拖",
      [F["lo"], F["hi"], F["hi"], F["hi"], F["hi"]], case_first_miss, {0: HOLD_LO}),
-    ("局内: 闪效假阳性一次都不许拖",
+    ("局内: 闪效假阳性不许拖（只走超时兜底）",
      [F["hi"], F["lo"], F["lo"]], case_transient, {0: HOLD_HI}),
-    ("局内: 全程未达标 → 超时也不拖顶", [F["lo"]], case_never),
+    ("局内: 全程未达标 → 超时兜底拖顶", [F["lo"]], case_never),
     ("结算页继续 → 战绩页返回", [F["settle"], F["win"]], case_settle),
     ("已回世界竞赛页不重复点", [F["arena"]], case_settle_already),
     ("dry 零副作用", [F["hi"]], case_dry),
