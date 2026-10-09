@@ -64,7 +64,8 @@ ADCLOSE_XY = (700, 300)
 
 # 金标准坐标（真帧上实测）
 C_STAGE_BTN = (620, 1383)               # stage_btn@首页
-C_STAGE_SWEEP = (93, 1334)              # stage_sweep@关卡页
+C_STAGE_SWEEP = (80, 1333)              # stage_sweep@关卡页（2026-10-09 模板只裁按钮本体 143x62
+                                        #   → 中心由 93 左移到 80，落点仍在按钮面内 25..150）
 MAT1 = (156, 345)                       # MAT_ICONS[0] 在 RECT=812x1518 下的实际落点(= 实帧量得的原值)
 
 

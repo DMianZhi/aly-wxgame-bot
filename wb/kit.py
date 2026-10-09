@@ -385,6 +385,25 @@ def is_home(sc: Screen) -> bool:
     return sc.find(HOME_MARK) is not None
 
 
+GROUP_POPUP_JOIN = "grp_join"   # 首页常显弹窗「无尽限时小组赛」的「立即参加」
+GROUP_POPUP_X = "grp_x"         # 其右上角 X（等同「稍后参与」，不花钱、不消耗次数）
+
+
+def dismiss_group_popup(sc: Screen) -> bool:
+    """关掉首页常显的「无尽限时小组赛」自动弹窗。
+
+    ⚠ 这不是可选优化：该弹窗会盖住首页标志(stage_btn)与通用返回键，导致
+      is_home() 判否 + goto_home() 找不到返回键直接 "停手" —— 2026-10-09 实测
+      boss_mode 收尾与 sweep_stage 收尾都因此卡住（活动开启后会周期性自动弹）。
+    只当「立即参加 + X」同时 ≥0.93 命中才点，避免误关其它弹窗。
+    """
+    if sc.find(GROUP_POPUP_JOIN, 0.93) is None or sc.find(GROUP_POPUP_X, 0.93) is None:
+        return False
+    sc.click(sc.find(GROUP_POPUP_X, 0.93), "关闭「无尽限时小组赛」弹窗(稍后参与)")
+    time.sleep(1.6)
+    return True
+
+
 def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
     """尽力回首页：点通用返回键，直到首页标志出现。dry 模式只记录。"""
     for i in range(tries):
@@ -392,6 +411,8 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
             if i:
                 log("已回首页")
             return True
+        if dismiss_group_popup(sc):
+            continue
         if sc.dry:
             log(f"[dry] 会点 返回键({BACK_KEY}) 回首页")
             return True

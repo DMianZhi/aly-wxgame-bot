@@ -202,6 +202,23 @@ def one_round(sc: kit.Screen, idx: int, mode: str) -> str:
     return "ok"
 
 
+def close_panel(sc: kit.Screen) -> None:
+    """收尾: 关「扫荡完成」弹层 → 关快速扫荡面板。
+
+    ⚠ 面板是 modal，普通返回箭头够不到（stage_back 在面板下只有 0.495）→ 不关就会
+    卡在面板上，run_case 收尾的 goto_home 只能打印「找不到返回键，停手」就退出。
+    2026-10-09 实跑收尾实测（面板开着、stage_back 0.495 / nav_home 0.577）。
+    """
+    close_overlay(sc)
+    for _ in range(3):
+        hit = sc.find("sweep_close", 0.93)
+        if hit is None:
+            break
+        sc.click(hit, "关闭扫荡面板(收尾)")
+        kit.nap(2.0)
+    log(f"收尾关面板 → {sc.find('sweep_close', 0.93) is None}")
+
+
 def ensure_context(sc: kit.Screen, mode: str, mat: int) -> bool:
     """确保身处「快速扫荡」面板，且模式 / 材料筛选都对。
 
@@ -279,6 +296,7 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
 
     log(f"===== 汇总: {total} =====")
     sc.shot("sweep_stage_final")
+    close_panel(sc)                      # 收尾：面板不关掉，goto_home 够不到返回箭头
     ok = total.get("ok", 0)
     log(f"成功翻倍 {ok} 次（目标 {n * 2} 次）")
     return ok > 0
