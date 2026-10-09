@@ -186,6 +186,15 @@ def by_group(group: str) -> list[Entry]:
     return REGISTRY[group]
 
 
+def counts() -> dict[str, int]:
+    """各分组实际条目数。
+
+    docstring 里手写的那四个数字、以及 README 里的清单表，真值都来自这里；
+    smoke 会拿它与 docstring 对照 —— 手写数字改漏了就 FAIL。
+    """
+    return {g: len(by_group(g)) for g in (DAILY, CROP, SELFTEST, MAINT)}
+
+
 def entry(name: str) -> Entry:
     for e in ALL:
         if e.name == name:

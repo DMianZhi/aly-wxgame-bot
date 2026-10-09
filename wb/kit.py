@@ -225,7 +225,14 @@ class Screen:
 
         ⚠️ 这里吃的是**当前客户区坐标**：模板命中的坐标（match_adaptive 已反映射）
         以及像素检测算出来的坐标都必须走这里。手写的**基准坐标常量**请走 click_base。
+
+        窗口外的坐标直接报错 —— 这正是「基准常量当客户区用」的典型后果
+        （601 宽窗口下 x=740 落在窗外），以前会静默点空、只表现为「这个键没反应」。
         """
+        if not (0 <= x <= self.w and 0 <= y <= self.h):
+            raise ValueError(
+                f"{what}: 客户区坐标 ({x},{y}) 落在窗口外 (客户区 {self.w}x{self.h})。"
+                f"基准坐标常量请用 click_base / sc.roi")
         self.click((x, y, 1.0), what)
 
     def click_base(self, x: int, y: int, what: str) -> None:
@@ -246,6 +253,31 @@ class Screen:
         img 传入可复用同一帧（一帧扫多处）。"""
         bx, by, bw, bh = _bot.ref_rect_to_client(x, y, w, h, self.w, self.h)
         return (self.grab() if img is None else img)[by:by + bh, bx:bx + bw]
+
+    def tap(self, name: str, *, th: float | None = None, wait: float = 1.6,
+            tries: int = 3, label: str | None = None) -> bool:
+        """找模板 → 点 → 等页面反应；找不到就短暂重试（0.6s 一探）。
+
+        重试是给「点吞」「动画未稳」用的；wait 是点完等下页的时间。
+        返回是否点到（用例里的 tap/tap_xy 都收在这里，别再各写一份重试循环）。
+        """
+        for _ in range(max(1, tries)):
+            hit = self.find(name, th)
+            if hit:
+                self.click(hit, label or name)
+                nap(wait)
+                return True
+            nap(0.6)
+        log(f"✗ 未找到 {label or name}")
+        return False
+
+    def drag_base(self, x1: int, y1: int, x2: int, y2: int, **kw) -> None:
+        """按**基准坐标**拖拽（两个端点都换算，与上方的 _by 同一口径）。
+
+        拖拽是游戏交互（滑列表/拖战机），和点击一样只允许这一处换算。
+        """
+        _bot.drag_xy(*_bot.ref_to_client(x1, y1, self.w, self.h),
+                     *_bot.ref_to_client(x2, y2, self.w, self.h), self.rect, self.dry, **kw)
 
     def find_all(self, name: str, th: float | None = None, max_hits: int = 4,
                  gap_ratio: float = 0.8) -> list[tuple[int, int, float]]:

@@ -100,9 +100,36 @@ def check_import_all(errors: list[str]) -> None:
         errors.append(f"import: {e}")
 
 
+def check_doc_counts(errors: list[str]) -> None:
+    """注册表 docstring 里的手写计数必须与实际条目数一致。
+
+    这类漂移真发生过(一次写 10、实际 12)，而且不报错 —— 只有人对一眼才发现。
+    真值一律来自 registry.counts()，手写的那行只当「人话」。
+    """
+    try:
+        import re
+
+        from wb import registry as R
+
+        got = R.counts()
+        text = R.__doc__ or ""
+        wrote = {m.group(1): int(m.group(2))
+                 for m in re.finditer(r"^\s+(daily|crop|selftest|maint)\s+(\d+)\s+个",
+                                      text, re.M)}
+        assert wrote, "docstring 里没找到分组计数行（格式改了？）"
+        bad = [f"{g}: docstring 写 {wrote.get(g)} / 实际 {n}" for g, n in got.items()
+               if wrote.get(g) != n]
+        assert not bad, f"docstring 计数漂移 → {bad}"
+        print("[ok] docstring 计数与注册表一致（" +
+              " / ".join(f"{g} {n}" for g, n in got.items()) + "）")
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"doc-count: {e}")
+
+
 def main() -> int:
     errors: list[str] = []
-    for fn in (check_config, check_match, check_window, check_click, check_registry, check_import_all):
+    for fn in (check_config, check_match, check_window, check_click, check_registry,
+               check_doc_counts, check_import_all):
         fn(errors)
     if errors:
         print("FAIL:", *errors, sep="\n  - ")
