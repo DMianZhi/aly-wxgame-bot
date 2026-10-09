@@ -56,7 +56,12 @@ F = {
     "arena": "exp_world.png",         # 世界竞赛页（wc_title 0.981）
 }
 
-DRAG = (406, 1180, 406, 225)          # 拖战机到顶部（游戏内坐标，实跑实测）
+# 拖拽起止点: 用例给的是**基准(ref)坐标**(ew.PLANE_FROM/PLANE_TO), 期望值必须按 st.RECT
+# 现算 —— 硬编码客户区坐标会在夹具窗口尺寸变动后立刻过期(812x1518 → 814x1507 时起点
+# y 差 9px, 直接假失败; 换算本身是对的, 只是期望值写死了)。比较用 ±6px 容差。
+DRAG = tuple(int(v) for v in (
+    *bot.ref_rect_to_client(*ew.PLANE_FROM, 1, 1, st.RECT[2], st.RECT[3])[:2],
+    *bot.ref_rect_to_client(*ew.PLANE_TO, 1, 1, st.RECT[2], st.RECT[3])[:2]))
 BM = 45.0                             # 自检把局内上限从 210s 压到 45s：逻辑一致但跑得快
 HOLD_LO = 18.0                        # 场景①：lo 停这么久 → 首个读数落在 lo、首个达标读数在下一轮
 HOLD_HI = 15.0                        # 场景②：hi 停这么久 → **首个读数就是达标**（当年被骗那次）
@@ -115,7 +120,7 @@ def case_first_miss(rp):
     miss = any(not v for _, v in reads)              # 真的过了「未达」那一段
     waited = first is not None and t0 >= first + 0.6 * ew.SCORE_POLL   # 首达标后又等一轮=复核
     by_score = t0 <= BM - 0.5                        # 不是靠超时兜底拖的（否则判据没起作用）
-    coords_ok = all(d == DRAG for d in rp.drags)
+    coords_ok = all(all(abs(a - b) <= 6 for a, b in zip(d, DRAG)) for d in rp.drags)
     good = (why == "finish" and len(rp.drags) == 2 and coords_ok
             and miss and waited and by_score)
     return good, (f"局内: 结束={why} 拖拽={len(rp.drags)}次(期望2) "

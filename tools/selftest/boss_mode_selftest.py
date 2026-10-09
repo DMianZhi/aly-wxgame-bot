@@ -84,7 +84,12 @@ C_PEGASUS = (256, 1097)
 C_FLASH = (308, 1418)
 C_BACK = (726, 1457)
 C_CONFIRM = (418, 913)
-C_SKILL = (723, 1297)   # 技能兜底坐标: 基准 (740,1300) 经 ref_to_client 换算到 st.RECT=812x1518
+# 技能兜底坐标: **按 battle.SKILL_XY + st.RECT 现算**, 别再硬编码 —— 夹具窗口尺寸一改,
+# 硬编码值立刻过期: 812x1518 时代写死 (723,1297); 换 814x1507 后实际落点变 (721,1288),
+# 「状态机」「周期性补点」两个用例当场假失败(点击其实全都发生了)。比较留 ±6px, 与
+# st.check_clicks 同口径, 吸收换算取整。
+C_SKILL = tuple(int(v) for v in
+                _bot.ref_rect_to_client(*battle.SKILL_XY, 1, 1, st.RECT[2], st.RECT[3])[:2])
                         # （窗口小于基准时基准坐标会点到窗口外，故实跑走的是换算后的值）
 
 
@@ -218,7 +223,8 @@ def case_skill_periodic(rp):
     """
     ok, _r, _v = battle.fight(_sc(), lambda _s: 0, skill_period=0.25, timeout=3.0,
                               label="技能周期")
-    skills = [c for c in rp.real_clicks if c == C_SKILL]
+    skills = [c for c in rp.real_clicks
+              if abs(c[0] - C_SKILL[0]) <= 6 and abs(c[1] - C_SKILL[1]) <= 6]
     return (not ok) and len(skills) >= 3, \
         f"超时={not ok} 技能点击={len(skills)}次(期望>=3) 点击={rp.real_clicks}"
 
