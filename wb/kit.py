@@ -221,8 +221,31 @@ class Screen:
         _bot.click_xy(x, y, self.jitter, self.delay, self.rect, False)
 
     def click_at(self, x: int, y: int, what: str) -> None:
-        """按坐标点（用于颜色判态等非模板定位的场景）。"""
+        """按坐标点（用于颜色判态等非模板定位的场景）。
+
+        ⚠️ 这里吃的是**当前客户区坐标**：模板命中的坐标（match_adaptive 已反映射）
+        以及像素检测算出来的坐标都必须走这里。手写的**基准坐标常量**请走 click_base。
+        """
         self.click((x, y, 1.0), what)
+
+    def click_base(self, x: int, y: int, what: str) -> None:
+        """按**基准坐标**点（845x1521 下标出来的常量），自动换算到当前客户区。
+
+        基准坐标直接当客户区坐标用是错的：顶部标题栏 77px 不随窗口缩放，
+        窗口越小偏得越离谱（601 宽时 x=740 直接点到窗口外）。详见 bot.ref_to_client。
+        """
+        self.click_at(*_bot.ref_to_client(x, y, self.w, self.h), what)
+
+    def _by(self, y: int) -> int:
+        """基准 y → 当前客户区 y（拖拽用；x 另算）。"""
+        return _bot.ref_to_client(0, y, self.w, self.h)[1]
+
+    def roi(self, x: int, y: int, w: int, h: int, img=None):
+        """按**基准坐标**取当前帧的一块区域（像素判态/裁剪用），自动换算。
+
+        img 传入可复用同一帧（一帧扫多处）。"""
+        bx, by, bw, bh = _bot.ref_rect_to_client(x, y, w, h, self.w, self.h)
+        return (self.grab() if img is None else img)[by:by + bh, bx:bx + bw]
 
     def find_all(self, name: str, th: float | None = None, max_hits: int = 4,
                  gap_ratio: float = 0.8) -> list[tuple[int, int, float]]:
@@ -253,11 +276,14 @@ class Screen:
                 steps: int = 15, hold: float = 0.25, settle: float = 1.8) -> None:
         """拟人分段上拖（把被遮挡的内容露出来）。dry 只登记计划。
 
+        x 是客户区坐标(None = 窗口中心)；y_from/y_to 是**基准坐标**(当年在 845x1521 下标定)，
+        会按当前窗口换算 —— 否则窗口一改矮(实测见过 1143)起点 y=1150 就落到窗外了。
         实测要点: 拖动前必须把游戏窗口置于前台（后台进程 moveTo 会静默失败）。
         """
         import pyautogui
 
         x = self.w // 2 if x is None else x
+        y_from, y_to = self._by(y_from), self._by(y_to)
         self.planned.append((f"上拖 {y_from}->{y_to}", x, y_from))
         if self.dry:
             log(f"[dry] 会从 ({x},{y_from}) 上拖到 ({x},{y_to})")

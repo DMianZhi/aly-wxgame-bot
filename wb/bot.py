@@ -187,8 +187,71 @@ def match_template(screen: np.ndarray, tpl: np.ndarray, threshold: float):
 #   845x1521 → 813x1519 时画布只缩了 0.13%，裸匹配仍能到 0.96，但落点整体左移约 15px。
 # 所以匹配前先把画面重采样回基准尺寸，命中坐标再反映射回真实客户区。
 REF_SIZE: tuple[int, int] = (845, 1521)
+CLIENT_TITLE_H = 77             # 微信小游戏顶部自绘标题栏高度（固定设备像素，不随窗口缩放）
 _GEOM_HINT: dict[tuple[int, int], int] = dict()  # (W,H) -> 上次命中的候选序号（下次先用它）
 _SIZE_NOTED: set[tuple[int, int]] = set()     # 已提示过的尺寸，只提示一次
+
+
+def map_point(x: int, y: int, src: tuple[int, int], dst: tuple[int, int]) -> tuple[int, int]:
+    """把在 src 尺寸帧上标定的点换算到 dst 尺寸帧（标题栏固定不缩放）。
+
+    全项目**唯一**的几何换算，ref_to_client / client_to_ref / croplab.scale_crops
+    都走这里 —— 免得同一个公式在三处各写一遍、改一处忘一处。
+        s  = (dst_h - TITLE) / (src_h - TITLE)
+        x' = (x - src_w/2) * s + dst_w/2    # 按高等比 + 宽度居中（两边同时留边/裁切）
+        y' = TITLE + (y - TITLE) * s
+    """
+    sw, sh = src
+    dw, dh = dst
+    s = (dh - CLIENT_TITLE_H) / max(1, sh - CLIENT_TITLE_H)
+    return (round((x - sw / 2) * s + dw / 2),
+            round(CLIENT_TITLE_H + (y - CLIENT_TITLE_H) * s))
+
+
+def map_rect(x: int, y: int, w: int, h: int,
+             src: tuple[int, int], dst: tuple[int, int]) -> tuple[int, int, int, int]:
+    """矩形版的 map_point（宽高按同一 s 缩放，保证不出现 0 宽高）。"""
+    s = (dst[1] - CLIENT_TITLE_H) / max(1, src[1] - CLIENT_TITLE_H)
+    bx, by = map_point(x, y, src, dst)
+    return bx, by, max(1, round(w * s)), max(1, round(h * s))
+
+
+def scale_delta(dx: int, dy: int, src: tuple[int, int], dst: tuple[int, int]) -> tuple[int, int]:
+    """在 src 帧上量的**相对偏移** → dst 帧。
+
+    用于「模板命中 + 偏移」定位（锚点随画面自适应，偏移也得跟着缩放）:
+    两帧里两个相邻点的位移只差一个 s，常量项（居中/标题栏）相消，所以只看增量。
+    不缩放就是隐形 bug: 812 上量的 300px 偏移，到 601 宽只应该走 222px。
+    """
+    s = (dst[1] - CLIENT_TITLE_H) / max(1, src[1] - CLIENT_TITLE_H)
+    return round(dx * s), round(dy * s)
+
+
+def ref_to_client(x: int, y: int, w: int, h: int) -> tuple[int, int]:
+    """基准坐标（845x1521 下标出来的点）-> 当前客户区坐标。
+
+    为什么不能拿基准坐标当点击坐标：游戏画布是**按高等比 + 宽度居中裁切**渲染的，
+    而顶部 77px 标题栏是固定像素、不跟着缩放 —— 窗口越小，基准坐标偏得越离谱。
+    实测（真值分别由模板命中 / 颜色环圆心量出），下面三个尺寸误差都 <=1px:
+        845x1521 -> (755,1296)    812x1518 -> (738,1293)    601x1143 -> (546, 977)
+    """
+    return map_point(x, y, REF_SIZE, (w, h))
+
+
+def client_to_ref(x: int, y: int, w: int, h: int) -> tuple[int, int]:
+    """当前客户区坐标 → 基准坐标（与 ref_to_client 互逆；标定常量时用）。
+
+    用于把「在某张实帧上量出来的坐标」归一到基准尺寸：实帧是 812x1518 就用 812x1518 当 (w,h)。
+    这样常量进代码前统一成基准口径，click_base/roi 再换到实时窗口 —— 在标定尺寸上往返恒等，
+    换到别的窗口尺寸才算得准。
+    """
+    return map_point(x, y, (w, h), REF_SIZE)
+
+
+def ref_rect_to_client(x: int, y: int, w: int, h: int,
+                       cw: int, ch: int) -> tuple[int, int, int, int]:
+    """基准矩形 -> 当前客户区矩形（供像素判态/区域裁剪用），宽高按同一 s 缩放。"""
+    return map_rect(x, y, w, h, REF_SIZE, (cw, ch))
 
 
 def _resize_candidates(w: int, h: int) -> list[tuple[int, int]]:

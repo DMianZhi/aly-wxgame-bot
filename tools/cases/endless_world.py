@@ -63,9 +63,14 @@ from wb import bot                           # noqa: E402
 from wb import digits                        # noqa: E402
 from wb.cfg import CONF, SHOTS_DIR           # noqa: E402
 
-ROWS = (432, 598, 764, 930, 1095)            # 选择机友页 5 行中心 y
-BUY_X = 702                                  # 战前准备页价格键 x（各行同列）
-BUY_COL = (615, 800)                         # 价格键所在像素列区间（绿键检测用）
+# 三个常量当年都在 812x1518 实帧上量 → 先归一到基准(见 bot.client_to_ref)，
+# 运行时再由 _rc/_rr 换到当时的窗口。否则窗口一改小(实测见过 601)整列都读偏。
+ROWS = tuple(bot.client_to_ref(0, y, 812, 1518)[1] for y in (432, 598, 764, 930, 1095))
+BUY_X = bot.client_to_ref(702, 0, 812, 1518)[0]
+BUY_COL = tuple(bot.client_to_ref(x, 0, 812, 1518)[0] for x in (615, 800))
+# 战机(拖拽起点)与拖到的顶部: 同样量自 812 实帧 —— 别与上面的口径搞两套
+PLANE_FROM = bot.client_to_ref(406, 1180, 812, 1518)   # 战机 ≈ 底边居中
+PLANE_TO = bot.client_to_ref(406, 225, 812, 1518)      # 拖到屏幕上部
 BUY_ANCHORS = (                              # (锚点模板, 说明, 需求数, 阈值)
     ('prep_it_flame', '炽焰冲击💎20', 3, 0.90),
     ('prep_it_fire', '烈火💰200', 3, 0.90),
@@ -124,6 +129,21 @@ class Case:
             self._focus()
             bot.click_xy(x, y, 3, (0.4, 0.7), self.rect, self.dry)
         time.sleep(wait)
+
+    def _rc(self, x, y):
+        return bot.ref_to_client(x, y, self.rect.w, self.rect.h)
+
+    def _rr(self, x, y, w, h):
+        return bot.ref_rect_to_client(x, y, w, h, self.rect.w, self.rect.h)
+
+    def row_strip(self, yc, x0=60, x1=740, half=70):
+        """选机友页某一行的像素条带（**客户区**行号，x 区间按基准换算）。"""
+        bx0, _, bw, _ = self._rr(x0, 0, x1 - x0, 1)
+        return self.grab()[max(0, yc - half):yc + half, bx0:bx0 + bw]
+
+    def drag_base(self, x1, y1, x2, y2, **kw):
+        """基准坐标拖拽（拖拽是游戏交互，坐标同样得换算）。"""
+        bot.drag_xy(*self._rc(x1, y1), *self._rc(x2, y2), self.rect, self.dry, **kw)
 
     def tap(self, tpl, th=0.88, wait=1.6, tries=3, label=None):
         for _ in range(tries):
@@ -203,19 +223,22 @@ class Case:
         f = self.grab()
         if not self.find('sel_go', 0.90):
             return False
+        # ROWS 是基准行号；帧内读数字/取条带都要用**客户区行号**（窗口被改小时不换算会读错行）
+        rows_c = [self._rc(0, y)[1] for y in ROWS]
         target = None
-        for i, yc in enumerate(ROWS):
+        for i, yc in enumerate(rows_c):
             ge4, sc = digits.first_digit_ge(f, yc)      # 首位≥7 ⇔ 加成≥700
-            self.log(f'  行{i + 1} yc={yc} 首位≥7={ge4} 读数={digits.read_row(f, yc)}')
+            self.log(f'  行{i + 1} 基准y={ROWS[i]} 客户区y={yc} 首位≥7={ge4} '
+                     f'读数={digits.read_row(f, yc)}')
             if not ge4 and target is None and sc is not None:
                 target = yc
         if target is None:
             self.log('  没有加成<700 的机友 → 用最后一行')
-            target = ROWS[-1]
-        row0 = self.grab()[target - 70:target + 70, 60:740].astype('int16')
+            target = rows_c[-1]
+        row0 = self.row_strip(target).astype('int16')
         for x in (400, 300, 600, 480):
-            self.tap_xy(x, target, 1.5, f'选机友行y={target}')
-            d = np.abs(self.grab()[target - 70:target + 70, 60:740].astype('int16') - row0).mean()
+            self.tap_xy(self._rc(x, 0)[0], target, 1.5, f'选机友行 客户区y={target}')
+            d = np.abs(self.row_strip(target).astype('int16') - row0).mean()
             self.log(f'    行区变化={d:.1f}')
             if d > 3 or self.dry:
                 break
@@ -231,7 +254,8 @@ class Case:
         if self.dry:
             time.sleep(0.4)
             return
-        bot.drag_xy(300, 820, 300, 820 - dy, self.rect, self.dry, steps=12, pre=0.12)
+        bot.drag_xy(*self._rc(300, 820), *self._rc(300, 820 - dy), self.rect, self.dry,
+                    steps=12, pre=0.12)
         time.sleep(1.2)
 
     def find_buy_btn(self, row_y, tol=80):
@@ -241,8 +265,9 @@ class Case:
         直接拿锚点 y 去点会踩到按钮边缘甚至面板上。返回按钮中心 y 或 None。
         """
         f = self.grab()
+        bx0, _, bw, _ = self._rr(BUY_COL[0], 0, BUY_COL[1] - BUY_COL[0], 1)
         hsv = cv2.cvtColor(f, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, (45, 80, 80), (85, 255, 255))[:, BUY_COL[0]:BUY_COL[1]]
+        mask = cv2.inRange(hsv, (45, 80, 80), (85, 255, 255))[:, bx0:bx0 + bw]
         rows = mask.sum(axis=1)
         runs, st = [], None
         for y, v in enumerate(rows):
@@ -273,7 +298,9 @@ class Case:
             self.log(f'  买 {label} ×{need}（锚点 y={c[1]}）')
             for k in range(need):
                 by = self.find_buy_btn(c[1]) or c[1]
-                self.tap_xy(BUY_X, by, 1.3, f'{label} 第{k + 1}次 (价格键 y={by})')
+                # 价格键 x 是基准常量，y 来自帧内检测（已是客户区行）→ 只换算 x
+                self.tap_xy(self._rc(BUY_X, 0)[0], by, 1.3,
+                            f'{label} 第{k + 1}次 (价格键 y={by})')
             ok += 1
         return ok
 
@@ -389,7 +416,8 @@ class Case:
             if self.dry:
                 time.sleep(0.4)
                 continue
-            bot.drag_xy(406, 1180, 406, 225, self.rect, self.dry, hold=hold, duration=0.7)
+            bot.drag_xy(*self._rc(*PLANE_FROM), *self._rc(*PLANE_TO), self.rect, self.dry,
+                        hold=hold, duration=0.7)
             if self.find('claim_btn', 0.90):
                 return
 

@@ -35,6 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from wb import bot as _bot  # noqa: E402
 from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 
@@ -46,7 +47,11 @@ TH_GIFT = 0.90        # 恭喜获得里的「领取」（复用 claim_btn，面�
 TH_STAIR = 0.86       # 逐星长阶横幅（新裁文字版：旧美术 0.89 / 当前 0.96~1.00）
 TH_HOME = 0.90        # 首页「闯关模式」（stage_btn）
 TH_BACK = 0.85        # 「返回」键（wc_res_back 在逐星长阶 0.976 / 闯关页 0.99，复用）
-COUNTER = (700, 203, 812, 270)   # 右上「逐星信标」计数区（数字被右边缘裁掉一截）
+COUNTER = (_bot.client_to_ref(700, 203, 812, 1518)
+           + _bot.client_to_ref(812, 270, 812, 1518))
+# ↑ ×5 装置计数区。**(x0,y0,x1,y1) 四角点、基准口径**，与 counter_region 的
+#   `sc.roi(x0,y0,x1-x0,y1-y0)` 配套。当年在 812x1518 实帧上量: 右边界正好贴窗口右沿(x=812) ——
+#   归一后换算回去，任何尺寸下它依然贴右沿(@601 → 右边界=601)，这正是「右上计数区」该有的行为。
 COUNTER_DIFF = 3.0    # 该区平均差 > 3 判「计数变了」（实测: 未变 0.0 / 变 10.2）
 GIFT_WAIT = 8.0       # 点完等「恭喜获得」覆盖层的最长秒数（实测 1~2s）
 BACK_WAIT = 8.0       # 覆盖层收掉后等页面稳定的最长秒数
@@ -71,7 +76,7 @@ PLAN = """[dry] 计划:
 
 def counter_region(sc: kit.Screen):
     x0, y0, x1, y1 = COUNTER
-    return sc.grab()[y0:y1, x0:x1].astype("int16")
+    return sc.roi(x0, y0, x1 - x0, y1 - y0).astype("int16")
 
 
 def state(sc: kit.Screen) -> str:

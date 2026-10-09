@@ -25,11 +25,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from wb import bot as _bot  # noqa: E402
 from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 from tools.maint.clear_bag import clear_if_full  # noqa: E402   # 背包满自动清理
 
-MAT_ICONS = [(156, 345), (299, 345), (440, 345), (582, 345)]
+MAT_ICONS = [_bot.client_to_ref(x, 345, 812, 1518) for x in (156, 299, 440, 582)]
+# ↑ 当年在 812x1518 实帧上量的坐标, 先归一成基准口径(见 bot.client_to_ref),
+#   点击时再由 click_base 换到当时的窗口 —— 812(主流尺寸)往返恒等, 601/845 才算得准。
 TH = 0.88            # 通用
 SWEEP_TH = 0.93      # 「扫荡」按钮（橙色，只有可用/未耗尽的行才会命中）
 TOGGLE_TH = 0.93     # 切换器 label
@@ -38,7 +41,7 @@ TABBAR_TH = 0.90     # 整条页签栏（任意选中态都该命中）
 DOUBLE_TH = 0.93     # 「双倍奖励」按钮
 DONE_TH = 0.90       # 「扫荡完成」弹层
 AD_TH = 0.90         # 广告链路
-BLANK = (420, 620)   # 「扫荡完成」弹层上的空白点（点它关弹层）
+BLANK = _bot.client_to_ref(420, 620, 812, 1518)   # 「扫荡完成」弹层上的空白点（点它关弹层）
 OVERLAY_SIG = "sweep_done"
 BLANK_LIMIT = 3      # 连续几关无翻倍机会就收工
 
@@ -145,7 +148,7 @@ def close_overlay(sc: kit.Screen) -> bool:
     for _ in range(4):
         if sc.find(OVERLAY_SIG, DONE_TH) is None:
             return True
-        sc.click_at(BLANK[0], BLANK[1], "弹层空白处(关弹层)")
+        sc.click_base(BLANK[0], BLANK[1], "弹层空白处(关弹层)")
         kit.nap(1.5)
     ok = sc.find(OVERLAY_SIG, DONE_TH) is None
     log(f"弹层关闭 → {ok}")
@@ -163,7 +166,7 @@ def select_material(sc: kit.Screen, idx: int) -> bool:
         return True
     x, y = MAT_ICONS[min(idx, 4) - 1]
     log(f"选材料类型 #{idx} (材料最少的那个) ({x},{y})")
-    sc.click_at(x, y, f"材料类型#{idx}")
+    sc.click_base(x, y, f"材料类型#{idx}")
     kit.nap(2.0)
     return True
 

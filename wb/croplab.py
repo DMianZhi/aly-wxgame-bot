@@ -26,7 +26,7 @@ from PIL import Image, ImageDraw, ImageFont
 if str(APP_DIR := Path(__file__).resolve().parent.parent) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-from wb.bot import find_game_window, grab_window  # noqa: E402
+from wb.bot import find_game_window, grab_window, map_rect  # noqa: E402
 from wb.cfg import CONF, SHOTS_DIR, TEMPLATES_DIR  # noqa: E402
 
 WEAK_THRESHOLD = 0.90   # 实时匹配低于此分算薄弱
@@ -66,18 +66,23 @@ def load_source(explicit: Path | None = None) -> tuple[Image.Image, Path]:
 # ---------------------------------------------------------------- 裁剪
 def scale_crops(crops: dict[str, Crop], ref_size: tuple[int, int],
                 img_size: tuple[int, int]) -> dict[str, Crop]:
-    """参考尺寸下的坐标表 -> 实际截图尺寸（等比缩放）。尺寸一致时原样返回。"""
-    rw, rh = ref_size
-    W, H = img_size
-    sx, sy = W / rw, H / rh
-    if abs(sx - 1) <= 0.005 and abs(sy - 1) <= 0.005:
-        return crops
-    print(f"!! 截图尺寸 {W}x{H} ≠ 参考 {rw}x{rh}，坐标已等比缩放 x{sx:.3f}/y{sy:.3f}，"
-          "裁完务必看蒙太奇核对")
+    """参考尺寸下的坐标表 -> 实际截图尺寸。尺寸一致时原样返回。
+
+    不能按整图等比缩：顶部 77px 标题栏是固定像素、不跟随缩放，整图等比会把 y 整体裁偏。
+    共用 wb/bot.py::map_rect —— 与运行期的「基准→客户区」是**同一套几何**，
+    否则标定出来的模板与 click_base 的落点会错位。
+
+    即使只差 2px 也照样算（不再设「差别太小就跳过」的容差）：容差会让裁剪走一个口径、
+    点击走另一个口径 —— 同一个尺寸两个结果，正是过去踩过的坑。
+    """
+    dw, dh = img_size
+    if abs(dw - ref_size[0]) > 4 or abs(dh - ref_size[1]) > 4:
+        print(f"!! 截图尺寸 {dw}x{dh} ≠ 参考 {ref_size[0]}x{ref_size[1]}："
+              "按「标题栏固定 77px + 按客户区高等比」换算，裁完务必看蒙太奇核对")
     out: dict[str, Crop] = {}
     for name, c in crops.items():
-        out[name] = Crop(round(c.x * sx), round(c.y * sy),
-                         round(c.w * sx), round(c.h * sy), c.label)
+        x, y, w, h = map_rect(c.x, c.y, c.w, c.h, ref_size, img_size)
+        out[name] = Crop(x, y, w, h, c.label)
     return out
 
 
@@ -257,7 +262,11 @@ def run_crop(
     src_np = cv2.imread(str(src_path))
     assert src_np is not None
     if stations:
-        distinct_matrix(stations, {n: crops[n][:4] for n in stations}, src_np)
+        # zone 必须是**换算后**的坐标：distinct_matrix 是拿 src_np(实际尺寸) 算的，
+        # 直接传原始 crops 会在「截图≠参考尺寸」时整片错位（旧代码的隐症）。
+        distinct_matrix(stations,
+                        {n: (scaled[n].x, scaled[n].y, scaled[n].w, scaled[n].h)
+                         for n in stations}, src_np)
     if reuse:
         reuse_check(reuse, src_np, min_score=0.95)
     report(tiles, weak, mpath, cpath)

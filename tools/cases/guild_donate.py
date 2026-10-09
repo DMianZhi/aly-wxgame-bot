@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from wb import bot as _bot  # noqa: E402
 from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 
@@ -39,7 +40,10 @@ TH_NOCNT = 0.88      # 提示层「捐献次数不足」/绿「确认」键
 POPUP_WAIT = 10.0    # 点支付键后等「恭喜获得」/确认弹窗的最长秒数
 BACK_WAIT = 10.0     # 点领取后等回捐献页的最长秒数
 CLICK_TRIES = 3      # 支付键最多点几次(丢点击重试; 重试前必查状态, 不会重复捐)
-CHK = (331, 791, 34, 34)   # 确认弹窗「今日不再提示」勾选框(用颜色判态)
+# 勾选框内框(颜色判态)。坐标是在 812x1518 实帧 _guildtest_dialog{,_chk}.png 上量的:
+# 两帧唯一差异连通块 = 53x53 中心(345,809)，框内 34x34 即 (331,791) → 归一到基准(347,792)。
+_x, _y = _bot.client_to_ref(331, 791, 812, 1518)
+CHK = (_x, _y, 34, 34)
 ALL_MAX = 9          # --all 的上限(真上限由「点后没弹层」兜住, 这里只防死循环)
 
 HOME, GUILD, DONATE, POPUP, DIALOG, NOCNT, UNKNOWN = ("HOME", "GUILD", "DONATE", "POPUP",
@@ -69,7 +73,7 @@ def _chk_checked(sc: kit.Screen) -> bool | None:
     没有弹窗时该处是深底(B≈122 R≈73) -> 返回 None。
     """
     x, y, w, h = CHK
-    roi = sc.grab()[y + 8:y + h - 8, x + 8:x + w - 8]
+    roi = sc.roi(x + 8, y + 8, w - 16, h - 16)
     if roi.size == 0:
         return None
     b, g, r = (float(roi[:, :, i].mean()) for i in range(3))
@@ -164,7 +168,7 @@ def handle_dialog(sc: kit.Screen, confirm: bool) -> bool:
     """
     st = _chk_checked(sc)
     if st is False:
-        sc.click_at(CHK[0] + CHK[2] // 2, CHK[1] + CHK[3] // 2, "勾选「今日不再提示」")
+        sc.click_base(CHK[0] + CHK[2] // 2, CHK[1] + CHK[3] // 2, "勾选「今日不再提示」")
         kit.nap(0.8)
     elif st is True:
         log("「今日不再提示」已勾选")

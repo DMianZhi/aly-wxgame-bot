@@ -13,13 +13,13 @@
     ① 模式识别/切换（normal ↔ hero 的 label 互斥，已实测无交叉误命中）
     ② 导航: 首页→关卡页→扫荡面板
     ③ 4星页签: 已选中=零点击 / 未选中=点「页签栏中心+20px」后再确认
-    ④ 材料最少优先: 默认 idx=1 → 点第 1 个图标(156,345)；--material=0 → 零点击
+    ④ 材料最少优先: 默认 idx=1 → 点第 1 个图标(812 下(156,345))；--material=0 → 零点击
     ⑤ 单轮成功: 扫荡 → 双倍奖励 → 跳过卡弹窗选「不使用」→ 广告看完关掉 → 关结算弹层
     ⑥ 无翻倍机会 → 换下一关（no_double，不误判成完成）
     ⑦ 连续 3 关无翻倍 → 收工（不空转到 N 轮）
     ⑧ 背包已满 → 清理后重进面板 → 本轮照常完成
     ⑨ 面板被误关 → ensure_context 复查并重进
-    ⑩ dry 零点击零写盘；⑪ 并发锁互斥
+    ⑩ dry 零点击零写盘；⑪ 并发锁互斥；⑫ 小窗口(601x1143)下基准坐标必须换算
 
 已知缺口（诚实标注）:
     「4星页签未选中」没有真帧（tabbar 模板只截过选中态），场景 ③b 用桩让 tab4 首次检查落空，
@@ -65,7 +65,7 @@ ADCLOSE_XY = (700, 300)
 # 金标准坐标（真帧上实测）
 C_STAGE_BTN = (620, 1383)               # stage_btn@首页
 C_STAGE_SWEEP = (93, 1334)              # stage_sweep@关卡页
-MAT1 = (156, 345)                       # MAT_ICONS[0] = 材料最少的那个
+MAT1 = (156, 345)                       # MAT_ICONS[0] 在 RECT=812x1518 下的实际落点(= 实帧量得的原值)
 
 
 def _sc(dry: bool = False) -> kit.Screen:
@@ -192,6 +192,28 @@ def case_material_least(rp):
     return clicks_ok, f"点击={rp.real_clicks}(期望 {MAT1} = 面板顶部计数最少的那个)"
 
 
+# 同一基准点(172,346 = 812 实帧 (156,345) 归一来的) 在 601x1143 窗口下的落点。
+# 手算: s=(1143-77)/1444=0.738227; x=(172-422.5)*s+300.5=115.6→116; y=77+(346-77)*s=275.6→276
+# 不换算就是 (156,345) —— 偏 40px，tol=6 必抓。
+C_MAT1_601 = (116, 276)
+
+
+def case_small_window(rp):
+    """⑫ 小窗口下基准坐标**必须**换算（否则 601 宽时 x=740 会点到窗口外）。
+
+    这个尺寸不是编的：shots 里就存在 601x1143 的真帧（标题栏同样是 77px → 原生截图），
+    说明游戏窗口会被改小。这里把 RECT 临时改成它，验的是「用例的基准常量确实过了换算」。
+    """
+    old = st.RECT
+    st.RECT = (0, 0, 601, 1143)
+    try:
+        sw.select_material(_sc(), 1)
+    finally:
+        st.RECT = old
+    ok = st.check_clicks("小窗口换算", rp.real_clicks, [C_MAT1_601])
+    return ok, f"点击={rp.real_clicks}(期望 {C_MAT1_601} = 基准(156,345) 换算到 601x1143)"
+
+
 def case_material_all(rp):
     """④b --material=0 → 保持「全部」，零点击。"""
     sw.select_material(_sc(), 0)
@@ -276,6 +298,7 @@ SCENES = [
     ("4星页签未选中(点中心+20，桩)", [P_NORMAL], case_tab4_unselected),
     ("材料最少优先(默认 #1)", [P_NORMAL], case_material_least),
     ("材料全部(--material=0 零点击)", [P_NORMAL], case_material_all),
+    ("小窗口(601x1143)基准坐标换算", [P_NORMAL], case_small_window),
     ("单轮成功(双倍+跳过卡不使用+关弹层)", [P_BTN, P_DOUBLE, AD_JUMPNO, AD_DONE, P_NORMAL],
      case_round_ok),
     ("无翻倍机会 → 换关", [P_BTN, P_NORMAL], case_round_no_double),

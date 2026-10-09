@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from wb import bot as _bot  # noqa: E402
 from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 
@@ -30,8 +31,9 @@ TH = 0.85               # 通用阈值
 TH_ICON = 0.88          # 免费 icon(多命中): 0.88 时正好 2 个命中、无幻影
 TH_REWARDED = 0.93      # 广告「已获得奖励」——低于此是播放中的假命中，不许关广告
 FLOW_TIMEOUT = 150      # 单个宝箱(广告+开箱+领取)总超时
-POKE_XY = (406, 1040)   # 开箱动画推进点: 两卡之间的空档(页面静止时点这里无副作用)
-CARD_SPLIT = 406        # x < 406 = 左卡(装备宝箱)，否则右卡(高级装备宝箱)
+# 当年在 812x1518 实帧上量的坐标 → 归一到基准(见 bot.client_to_ref)，
+# 点击时再 click_base 换到当时的窗口: 812(主流)往返恒等，601/845 才算得准。
+POKE_XY = _bot.client_to_ref(406, 1040, 812, 1518)   # 开箱动画推进点: 两卡之间的空档(页面静止时点这里无副作用)
 
 PLAN = """[dry] 计划:
   首页 --(nav_treasure 寻宝)--> 寻宝页 --(上拖)--> 露出两张宝箱卡
@@ -73,7 +75,7 @@ def reveal_cards(sc: kit.Screen) -> list[tuple[int, int, float]]:
         return hits
     for attempt in (1, 2):
         log(f"卡片不完整，第 {attempt} 次上拖")
-        sc.drag_up(CARD_SPLIT, 1150, 650)
+        sc.drag_up()          # 起点 x 默认窗口中心，y 走基准换算
         hits = sc.find_all("treasure_free", th=TH_ICON)
         log(f"拖动后免费 icon {len(hits)} 个: {[(h[0], h[1], round(h[2], 3)) for h in hits]}")
         if len(hits) >= 2 or sc.dry:
@@ -149,7 +151,7 @@ def one_chest(sc: kit.Screen, hit, label: str) -> bool:
         # 页面可见且无弹窗: 开箱动画停在中间等点击(实测动画不会自己推进)
         if not ad_seen and kit.time.time() - t0 > 9 and pokes < 4 \
                 and kit.time.time() - last_poke > 4:
-            sc.click_at(POKE_XY[0], POKE_XY[1], f"开箱动画推进点(第 {pokes + 1} 次)")
+            sc.click_base(POKE_XY[0], POKE_XY[1], f"开箱动画推进点(第 {pokes + 1} 次)")
             last_poke = kit.time.time()
             pokes += 1
         kit.nap(2.0)
@@ -179,7 +181,7 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
             log("没有可用的免费 icon(两个宝箱都领完 / 未露出)")
             break
         target = hits[0]
-        label = "装备宝箱" if target[0] < CARD_SPLIT else "高级装备宝箱"
+        label = "装备宝箱" if target[0] < sc.w / 2 else "高级装备宝箱"   # 以窗口中线分左右卡
         if one_chest(sc, target, label):
             consumed.append(target[0])
         else:
