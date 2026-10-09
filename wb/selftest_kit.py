@@ -30,7 +30,9 @@ from . import bot as _bot
 from . import kit as _kit
 from .cfg import SHOTS_DIR
 
-RECT = (0, 0, 812, 1518)      # 用例内部只用到坐标，替身点击里不会碰 rect 字段
+RECT = (0, 0, 814, 1507)      # 用例内部只用到坐标, 替身点击里不会碰 rect 字段
+# ⚠ 必须等于真帧尺寸(REF): 夹具帧是 814x1507 拆下来的真帧, 替身报别的尺寸会让
+#   ref_rect_to_client 算错缩放(实测报 812x1518 → 成本 ROI 的 y 偏 6px → IoU 0.28)
 
 
 class _ShimTime:
