@@ -226,26 +226,36 @@ class _PrepStub:
 
 PREP = "_endless_r1_prep.png"                  # 战前准备真帧：炽焰冲击 9 / 烈火 13 / 圣光 1 / 灰烬 10
 PREP_ROWS = {"prep_it_flame": (702, 525), "prep_it_fire": (702, 679), "prep_row_ash": (702, 987)}
+PREP3 = "_endless_r3_prep.png"                 # 另一滚动位（行距同 154，但整体上移）→ 验行→徽标映射
+PREP3_ROWS = {"prep_it_flame": (702, 430), "prep_it_fire": (702, 584), "prep_row_ash": (702, 893)}
 _FRAME: dict[str, object] = {}
 
 
-def _prep_frame():
-    if "f" not in _FRAME:
+def _prep_frame(name: str = PREP):
+    if name not in _FRAME:
         import cv2
-        _FRAME["f"] = cv2.imread(str(st.SHOTS_DIR / PREP))
-    return _FRAME["f"]
+        _FRAME[name] = cv2.imread(str(st.SHOTS_DIR / name))
+    return _FRAME[name]
+
+
+def _no_buy_case(frame_name: str, rows: dict[str, tuple[int, int]]):
+    """真帧徽标 ≥3 → 一件不买（徽标读数走 wb/icount.py 真代码，不桩）。"""
+    f = _prep_frame(frame_name)
+    stub = _PrepStub(f, rows)
+    ew.buy_items(stub)
+    vals = [ew.icount.held(f, y)[0] for _, y in rows.values()]
+    good = not stub.clicks and all(v is not None and v >= 3 for v in vals)
+    return good, f"{frame_name[8:12]} 持有{vals} → 点击 {stub.clicks}（期望空=不买）"
 
 
 def case_buy_enough(rp):
-    """⑨ 真帧徽标 ≥3 → 三个道具一件都不买（本次需求核心：别白花 💎/💰）。
+    """⑨ 真帧徽标 ≥3 → 三个道具一件都不买（本次需求核心：别白花 💎/💰）。"""
+    return _no_buy_case(PREP, PREP_ROWS)
 
-    徽标数取自真帧（走 wb/icount.py 真读数，不桩），预期待买三件 = 9/13/10 全 ≥3。
-    """
-    stub = _PrepStub(_prep_frame(), PREP_ROWS)
-    ew.buy_items(stub)
-    vals = [ew.icount.held(_prep_frame(), y)[0] for _, y in PREP_ROWS.values()]
-    good = not stub.clicks and all(v is not None and v >= 3 for v in vals)
-    return good, f"持有{vals} → 点击 {stub.clicks}（期望空=不买）"
+
+def case_buy_enough_r3(rp):
+    """⑪ 换一帧（列表滚动位置不同）仍是 ≥3 不买：锁行→徽标映射不依赖固定 y。"""
+    return _no_buy_case(PREP3, PREP3_ROWS)
 
 
 def case_buy_short(rp):
@@ -283,6 +293,7 @@ SCENES = [
     ("dry 零副作用", [F["hi"]], case_dry),
     ("并发锁互斥", [F["arena"]], case_lock),
     ("买道具: 持有≥3 不买（真帧徽标）", [PREP], case_buy_enough),
+    ("买道具: 换帧/换滚动位仍不买", [PREP3], case_buy_enough_r3),
     ("买道具: 不足才买/认不出不买", [PREP], case_buy_short),
 ]
 

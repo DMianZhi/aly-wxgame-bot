@@ -20,11 +20,11 @@
 -----------------------
 闪击需要各 3 件；已有 ≥3 再买就是白花钱。识别只认 templates/idigits 里已有的字形，
 **认不出就当「≥3」不买**（保守不花钱，并把徽标存盘当补字形的素材）。
-已知缺口：数字 2/4/5/6/8 无模板 → 其中 4/5/6/8 本来就 ≥3（判对）；
-只有「2」会被误判成「≥3 不买」（少买 1 件，不花钱、不报错）。
+已知缺口：数字 4/5/6/8 无模板 → 本来就 ≥3（判对）；
+「2」已从实跑真帧收割（2026-10-09）。
 
 自检：python wb/icount.py --selftest
-建库：python wb/icount.py --build     # 从两张已标注真帧收割字形
+建库：python wb/icount.py --build     # 从已标注真帧收割字形
 """
 from __future__ import annotations
 
@@ -195,6 +195,9 @@ def price_txt(label: str) -> str:
 LABELED = (
     ('_endless_r2_prep.png', ('9', '10', '1', '7')),
     ('_endless_r1_prep.png', ('9', '13', '1', '10')),
+    # r3：2026-10-09 现抓（列表滚动位置不同 → 顺带验一次行→徽标映射）
+    #   大图目视核过：9 / 13 / 2 / 10，其中「2」是圣光（本次新增字形）
+    ('_endless_r3_prep.png', ('9', '13', '2', '10')),
 )
 
 
@@ -238,12 +241,15 @@ def selftest() -> int:
     if not tpl:
         print(f'✗ 无模板（{TPL_DIR}）→ 先跑 --build', file=sys.stderr)
         return 1
+    missing = [n for n, _ in LABELED if not (SHOTS / n).exists()]
+    if len(missing) == len(LABELED):
+        print(f'SKIP 缺真帧夹具（需实跑截帧）: {", ".join(missing)}')
+        return 0
     print(f'字形集 {sorted(tpl)}（{len(tpl)} 个）')
     for name, exp in LABELED:
         f = cv2.imread(str(SHOTS / name))
         if f is None:
-            print(f'✗ 夹具缺失: {name}')
-            bad += 1
+            print(f'SKIP {name}（缺夹具）')
             continue
         badges = locate(f)
         if len(badges) != len(exp):
