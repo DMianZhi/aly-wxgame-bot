@@ -83,14 +83,18 @@ def state(sc: kit.Screen) -> str:
     → 必须先把面板挑出来，否则会在面板上按「进面板」的逻辑瞎点。
     首页标志只能用 stage_btn（nav_home 在子页也命中）。
     """
-    st = sc.look("claim_btn", "ss_claim5", "ss_entry", "stage_stair", "stage_btn")
+    st = sc.look("claim_btn", "ss_claim5", "ss_entry", "stage_stair", "stage_btn",
+                 "stage_event_lv")
     if st["claim_btn"] is not None:
         return GIFT
     if st["ss_claim5"] is not None:
         return PANEL
     if st["ss_entry"] is not None:
         return STAIR
-    if st["stage_stair"] is not None:
+    # 关卡页判层用**稳定标记** stage_event_lv(活动关卡按钮)：横幅美术 stage_stair 是
+    # 最后才渲染的，关卡页刚切过去时只有按钮在(实测横幅 0.490 / 本标记 0.994)
+    # → 只认横幅会把「渲染中」误判成未知页而中止。
+    if st["stage_stair"] is not None or st["stage_event_lv"] is not None:
         return STAGE
     if st["stage_btn"] is not None:
         return HOME
@@ -161,6 +165,10 @@ def enter_stair(sc: kit.Screen) -> bool:
             e = sc.find("stage_btn", TH_HOME)        # 闯关模式
             what = "闯关模式"
         if e is None:
+            if st == STAGE:          # 关卡页横幅美术还没渲染出来 → 等下一圈再判
+                log("关卡页横幅未就绪(美术加载中) → 等待重判")
+                kit.nap(2.0)
+                continue
             log(f"找不到入口({what})")
             sc.shot("fail_stair_entry")
             return False
