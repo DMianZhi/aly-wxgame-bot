@@ -27,12 +27,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from wb import battle, bot, kit  # noqa: E402
+from wb import actcard, kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 
 TH = 0.85
 FIGHT_TIMEOUT = 480         # 单轮(对话框里默认 2 次闪击)最长等待(自检会改小)
 NAV_WAIT = 3.0              # 导航点击后等画面稳定
+MH_TITLE = "mh_title"        # 卡标题(定位本卡的闪击)
+MH_DLG_TPL = "mh_dlg_title"  # 对话框标题(「闪击-导弹猎场」)
 UNKNOWN_TOLERATE = 3        # 连续几次 unknown 才认输(关卡页空载帧可达数秒)
 NAV_WAIT = 2.5              # 点完导航键等页面切换
 FLASH_OFF = (301, 176)      # 导弹猎场卡标题 → 该卡「闪击」键的偏移(量自 601x1143 实帧)
@@ -59,189 +61,42 @@ def _find(sc: kit.Screen, name: str, th: float = TH):
 
 def on_actpage(sc: kit.Screen) -> bool:
     """活动关卡页: 导弹猎场卡标题在(闪击键/对话框都不足以单独判层)。"""
-    return _find(sc, "mh_title") is not None
+    return actcard.on_card(sc, MH_TITLE)
 
 
 def page(sc: kit.Screen) -> str:
-    """当前页面: prompt(模态提示) / dialog / actpage / stage / home / unknown。
-
-    顺序即优先级，两条都是踩过的坑:
-      * prompt 最优先 —— 次数已耗尽弹窗会叠在活动关卡页上，不先认它就会误判成 actpage
-      * dialog 先于 actpage —— 对话框背后那张卡的 mh_flash 仍能命中(0.997)
-
-    ⚠ 关卡页判定用 **stage_event_lv**（活动关卡按钮的规范模板），不能用旧的 act_entry:
-      act_entry 是手裁的 117 高模板，把按钮**上方的关卡编号(如「142」)**也框了进去 ——
-      编号会随章节推进变化，换一关就从 0.99 掉到 0.833 < 0.85 门槛 → 判层 unknown、
-      导航直接失败（2026-10-09 实测）。stage_event_lv 只框按钮本体(218x62，起点在编号下方)，
-      实测 真机 0.986 / 601 夹具 0.979 / 非关卡页 ≤0.543。
-    """
-    if _find(sc, "boss_noattempts") is not None:
-        return "prompt"
-    if _find(sc, "mh_dlg_title") is not None:
-        return "dialog"
-    if on_actpage(sc):
-        return "actpage"
-    if _find(sc, "stage_event_lv") is not None:
-        return "stage"
-    if _find(sc, "stage_btn") is not None:
-        return "home"
-    return "unknown"
+    """当前页面: prompt / dialog / actpage / stage / home / unknown(顺序即优先级)。"""
+    return actcard.page(sc, MH_TITLE, MH_DLG_TPL)
 
 
 def close_prompt(sc: kit.Screen) -> bool:
-    """关掉「次数已耗尽」提示。
-
-    ⚠ 只在确认看到该文案后才调用 —— 绿确认键与付费确认长得像(0.898)，
-      盲点有把付费框点掉的风险。
-    """
-    ok = _find(sc, "boss_confirm_ok")       # 提示层上它是唯一的绿键(实测 0.96)
-    if ok is None:
-        log("提示层上没看到确认键(可能在淡入/淡出)，稍后再看")
-        kit.nap(1.5)
-        ok = _find(sc, "boss_confirm_ok")
-    if ok is None:
-        log("提示层上始终没有确认键 → 放弃关闭")
-        sc.shot("prompt_noclose")
-        return False
-    sc.click(ok, "确认(关掉次数已耗尽提示)")
-    if sc.dry:
-        return True
-    kit.nap(2.0)
-    return True
+    """关掉「次数已耗尽」提示(只在确认看到该文案后才调用)。"""
+    return actcard.close_prompt(sc)
 
 
 def pick_flash(sc: kit.Screen):
-    """导弹猎场那张卡的「闪击」键: 卡标题锚定 + 缩放后的偏移，取最近的模板命中。
-
-    三张活动卡同款按键，靠「离锚点最近」来归属；模板全空则退回预测点(因此必须
-    先有标题命中，否则不给预测点 —— 乱猜一个坐标比不点更糟)。
-    """
-    t = _find(sc, "mh_title")
-    if t is None:
-        return None
-    dx, dy = bot.scale_delta(*FLASH_OFF, FLASH_CALIB, (sc.w, sc.h))
-    px, py = t[0] + dx, t[1] + dy
-    hits = sc.find_all("mh_flash")
-    if hits:
-        best = min(hits, key=lambda h: (h[0] - px) ** 2 + (h[1] - py) ** 2)
-        d = ((best[0] - px) ** 2 + (best[1] - py) ** 2) ** 0.5
-        if d <= FLASH_TOL:
-            log(f"闪击键: 模板命中 {best[:2]} (s={best[2]:.3f}, 距锚点预测 {d:.0f}px)")
-            return best
-        log(f"闪击键: 最近的命中 {best[:2]} 离预测 {d:.0f}px > {FLASH_TOL} → 改用预测点")
-    else:
-        log("闪击键: 模板未命中 → 用锚点+偏移的预测点")
-    log(f"闪击键: 预测点 ({px},{py}) = 标题{t[:2]} + 偏移({dx},{dy})")
-    return (px, py, 0.0)
+    """导弹猎场那张卡的「闪击」键: 卡标题锚定 + 缩放偏移 → 最近命中。"""
+    return actcard.pick_flash(sc, MH_TITLE, FLASH_OFF, FLASH_CALIB)
 
 
 def goto_actpage(sc: kit.Screen) -> bool:
     """从首页/关卡页/已在活动关卡页都能到活动关卡页。"""
-    unknown = 0
-    for _ in range(8):
-        p = page(sc)
-        log(f"当前页面: {p}")
-        if p == "prompt":
-            close_prompt(sc)
-            unknown = 0
-        elif p in ("actpage", "dialog"):    # 对话框=已经过了活动关卡页那一步
-            return True
-        elif p == "stage":
-            e = _find(sc, "stage_event_lv")
-            if e is None:
-                log("关卡页找不到「活动关卡」入口(stage_event_lv)")
-                sc.shot("no_entry")
-                return False
-            sc.click(e, "活动关卡(stage_event_lv)")
-            kit.nap(NAV_WAIT)
-            unknown = 0
-        elif p == "home":
-            b = _find(sc, "stage_btn")
-            if b is None:
-                log("首页找不到「闯关模式」入口(stage_btn)")
-                return False
-            sc.click(b, "闯关模式(stage_btn)")
-            kit.nap(NAV_WAIT)
-            unknown = 0
-        else:
-            # ⚠ 关卡页/首页资源未加载完时有数秒「空载帧」: 单帧判层必误判 unknown。
-            #   2026-10-09 实测: 点「闯关模式」7s 后仍判 unknown, 但**同一刻**的留证截图
-            #   已完整渲染(章节/入口全在)。→ unknown 不当终局, 等一轮重判。
-            unknown += 1
-            if unknown >= UNKNOWN_TOLERATE:
-                log("未知页面(非首页/关卡页/活动关卡页) → 请人工确认")
-                sc.shot("unknown")
-                return False
-            log(f"页面未就绪(unknown 第 {unknown} 次) → 等 {NAV_WAIT}s 重判")
-            kit.nap(NAV_WAIT)
-        if sc.dry:
-            log("[dry] 计划: 闯关模式 → 活动关卡 → 导弹猎场闪击 → 对话框 → 局内")
-            break
-    return False
+    return actcard.goto_card(sc, MH_TITLE, MH_DLG_TPL)
 
 
-def fight(sc: kit.Screen) -> tuple[bool, int, int]:
+def fight(sc: kit.Screen):
     """局内(循环见 wb.battle.fight): 点技能 → 复活 → 装备UP → 结算继续。
 
-    退出条件 = 回到活动关卡页，连续 3 次(~6s)仍停留才算真打完 ——
-    战斗间隙会短暂闪过活动关卡页。
+    退出条件 = 回到活动关卡页，连续 3 次(~6s)仍停留才算真打完。
     """
-    def out_of_battle(s: kit.Screen) -> int:
-        return 3 if on_actpage(s) else 0
-
-    return battle.fight(sc, out_of_battle, timeout=FIGHT_TIMEOUT, label="本轮闪击")
+    return actcard.fight(sc, MH_TITLE, FIGHT_TIMEOUT, label="本轮闪击")
 
 
 def one_round(sc: kit.Screen) -> bool:
-    p = page(sc)
-    if p == "prompt":
-        log("开局就见「次数已耗尽」→ 关掉，跳过(不算失败)")
-        close_prompt(sc)
-        return True
-    if p != "dialog":                       # 残留对话框: 那一步已经过了，直接进局
-        if not goto_actpage(sc):
-            return False
-        fl = pick_flash(sc)
-        if fl is None:
-            log("活动关卡页找不到导弹猎场卡片标题(mh_title) → 跳过")
-            sc.shot("no_card")
-            return False
-        sc.click(fl, "导弹猎场-闪击(打开对话框)")
-        if sc.dry:
-            return False
-
-        # 点闪击后有两条路: 正常出闪击对话框；或次数用尽弹「今日可攻打次数已耗尽」
-        go = na = None
-        deadline = kit.time.time() + 15
-        while kit.time.time() < deadline:
-            na = _find(sc, "boss_noattempts")
-            go = _find(sc, "mh_dlg_go")
-            if na is not None or go is not None:
-                break
-            kit.nap(1.0)
-        if na is not None:
-            log("「当前关卡今日可攻打次数已耗尽」→ 关掉提示，跳过(不算失败)")
-            close_prompt(sc)
-            return True
-        if go is None:
-            log("未出现闪击对话框，放弃本轮")
-            sc.shot("nodialog")
-            return False
-    else:
-        log("已是闪击对话框(上次留下/刚打开的) → 直接闪击")
-
-    # 留证: 对话框里选了几次闪击/花多少体力 —— 事后可回看截图核对消耗
-    sc.shot("flash_dialog")
-    go = _find(sc, "mh_dlg_go")
-    if go is None:
-        log("闪击对话框上找不到「闪击」键(mh_dlg_go)")
-        return False
-    sc.click(go, "闪击(确认，次数/体力=游戏默认)")
-    kit.nap(3.0)
-
-    ok, rounds, revives = fight(sc)
-    log(f"本轮闪击{'完成' if ok else '未完成'} (结算页 {rounds} 张 / 复活 {revives} 次)")
-    return ok
+    """一轮闪击: 到活动关卡页 → 点闪击 → 对话框 → 点闪击 → 局内。"""
+    return actcard.one_round(sc, title_tpl=MH_TITLE, dlg_tpl=MH_DLG_TPL,
+                             flash_off=FLASH_OFF, flash_calib=FLASH_CALIB,
+                             timeout=FIGHT_TIMEOUT)
 
 
 def run(sc: kit.Screen, args: kit.Args) -> bool:

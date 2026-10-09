@@ -29,7 +29,7 @@ uv run python main.py check      # 环境自检（窗口/截屏/模板/配置）
 全部脚本在 `tools/` 下按角色分四组；**一个用例一个文件**，互不影响。
 新增用例：① 在对应目录丢一个 `.py`（建议直接抄同组最像的那个当模板）② 在 `wb/registry.py` 登记一行 —— smoke 与本文档会自动跟上。
 
-### 每日用例（`tools/cases/`，15 个）
+### 每日用例（`tools/cases/`，16 个）
 
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
@@ -39,15 +39,16 @@ uv run python main.py check      # 环境自检（窗口/截屏/模板/配置）
 | 4 | 星际探索 | `uv run python tools/cases/free_explore.py` | - | `--dry --max=N` | 整页阈值 0.90；exp_claim 须 ≥0.93；弹窗开着但无领取键=次数耗尽 |
 | 5 | 扫荡关卡 | `uv run python tools/cases/sweep_stage.py` | 普通5/5+英雄5/5 | `--max N --material N --dry` | ⭐ 材料最少优先(4 图标按计数升序→默认第 1 个) + 双倍奖励(每关每日限次→无翻倍换关，连续 3 关才收工) + ensure_context 防误关面板 + 背包满先清理再重进 |
 | 6 | BOSS 闪击 | `uv run python tools/cases/boss_mode.py` | 3/站 × 2 站(默认 战机+装甲)= 6 次/天 | `--station <站[,站]> --dry` | 默认只跑战机+装甲两站(副武器/僚机用 --station 显式指名，支持中文名/all)；「次数耗尽」提示可叠任意页→prompt 最优先；装备UP键列表页误命中→阈值 0.92；战斗间隙回站内页需连续 3 次才算打完 |
-| 7 | 导弹猎场闪击 | `uv run python tools/cases/missile_hunt.py` | 2/日(游戏默认，消耗体力) | `--dry` | 活动关卡页两张卡「闪击」键**同款**(0.998/0.978) → 用卡标题 mh_title 锚定 + 偏移(601 帧上量得 301,176，按窗口缩放)；残留对话框直接闪击；「次数已耗尽」提示叠在活动关卡页上→prompt 最优先；对话框「闪击 N 次」不擅改(改次数=改消耗) |
-| 8 | 寻宝 | `uv run python tools/cases/free_treasure.py` | - | `--dry --max=2` | 装备宝箱 + 高级装备宝箱两张卡的免费广告，各扣 1 次；广告中绝不点屏幕 |
-| 9 | 转盘 | `uv run python tools/cases/free_turn.py` | 1/日 | `--dry --max=1` | ⭐ 只在 turn_daily ≥0.85 时点；「购买💎30」是冷却付费键，绝不点 |
-| 10 | 兑换星辉 | `uv run python tools/cases/free_star.py` | 1/日 | `--dry --max=1` | 认「带红点的四角金币」；底栏「转盘」红点与本用例无关，别被带偏 |
-| 11 | 十年集结 | `uv run python tools/cases/free_rally.py` | 宝箱+弹幕各1/日 | `--dry --no-wish` | ⭐ 首页「寻宝下方第一张卡」是活动卡翻页区 → 翻出金卡才能点进集结页 |
-| 12 | 战队捐献 | `uv run python tools/cases/guild_donate.py` | 金 3/日 + 钻 3/日 | `--type gold\|diamond\|both --times N --all [--dry]` | 入口在卡片**底部黄键**(226,1129 / 612,1129)，点卡片正中无效；半透明遮罩判层；丢点击重试不重复捐 |
-| 13 | 好友体力 | `uv run python tools/cases/friend_stamina.py` | 1/日(30/30 封顶) | `--dry --max=N` | 入口=首页「无尽模式」正上排最左的**小人 icon**(friend_btn)；回礼弹窗「成功向好友送出了体力」确认后 +150 体力(可超上限)；满 30/30 后再点**无任何弹层**(静默无效，不是「次数不足」提示层) → 用键上红角标(像素计数)区分「丢点击」与「今日已无待收」；键外观收赠前后**逐像素相同**(差 0.0)不能判已领；「好友」标题牌是**通用标题牌**(其它页 0.883 误命中) → 页面标志用 fr_counter |
-| 14 | 逐星补给 | `uv run python tools/cases/star_supply.py` | 领5次=50信标/次 + 信标×5 各1/日 | `--dry --times N --no-back` | 入口=闯关页「逐星长阶」横幅(stage_stair，美术会轮换→只裁文字)→左下「逐星补给」(ss_entry)→面板「领5次」(ss_claim5，**×1/×5 是领几次不是价格，每次 10 逐星信标**，领5次花 50 → 得 5×(黑匣密钥30+金币3000))→恭喜获得「领取」(claim_btn 复用)→面板 X(ss_close)→长阶页 ×5 装置(ss_beacon，可领带红点/已领**装置整个消失**)→逐星信标×5；领5次是消耗动作默认只做 1 次且**无覆盖层不重试**(防重复消耗)，×5 免费可重试；面板半透明压暗(ss_entry 在面板下仍 0.97)→判层必须 PANEL 先于 STAIR；按钮坐标目测差 8px 就点空→用颜色测 bbox |
-| 15 | 无尽模式-世界竞赛 | `uv run python tools/cases/endless_world.py` | 6/日 | `--times N --allow-capped [--dry] [--no-back]` | 闪击次数用尽会自动改用「匹配」；挑战币达上限默认放弃(必须 --allow-capped 才跑)；战前准备买道具前先读图标左上角金徽标的持有数(wb/icount.py，实测徽标=持有数)：已有 ≥3 不买(省钱)，1/2 补到 3，无徽标按 0 照买，徽标认不出保守不买(存图留证)；得分≥400万 由 wb/bscore.py 逐字读数驱动拖顶收尾(需连续两次复核；读数不可信一律判未达)；拖顶时机：明确≥400万(复核两次)或超时兜底(保留原设计)；判分收紧后不再出现假阳性提前拖；回首页用 nav_home 而**非** kit.goto_home 的 ral_back（实测世界竞赛页 nav_home 0.975 vs ral_back 0.867、结算页 ral_back 0.000）；时间走 kit.now/nap（自检虚拟时钟可拦）；dry 出计划且 exit=0（点击不生效→跨页步骤不规划，无法真验流程） |
+| 7 | 激光迷宫闪击 | `uv run python tools/cases/laser_maze.py` | 2/日(游戏默认，消耗体力) | `--dry` | 活动关卡页**第二张卡**；整条流程在 wb/actcard.py(与导弹猎场共用一份，三张卡同款布局)：卡标题 lm_title 锚定 + 偏移(量自 814 帧 400,255)定位同款闪击键；先点「极难」页签(lm_hard，三张卡页签同款→取离本卡标题最近的命中)；对话框「闪击 2 次/⚡80」是游戏默认不擅改；局内复用 wb.battle.fight；回活动卡页连续 3 次算打完 |
+| 8 | 导弹猎场闪击 | `uv run python tools/cases/missile_hunt.py` | 2/日(游戏默认，消耗体力) | `--dry` | 活动关卡页两张卡「闪击」键**同款**(0.998/0.978) → 用卡标题 mh_title 锚定 + 偏移(601 帧上量得 301,176，按窗口缩放)；残留对话框直接闪击；「次数已耗尽」提示叠在活动关卡页上→prompt 最优先；对话框「闪击 N 次」不擅改(改次数=改消耗) |
+| 9 | 寻宝 | `uv run python tools/cases/free_treasure.py` | - | `--dry --max=2` | 装备宝箱 + 高级装备宝箱两张卡的免费广告，各扣 1 次；广告中绝不点屏幕 |
+| 10 | 转盘 | `uv run python tools/cases/free_turn.py` | 1/日 | `--dry --max=1` | ⭐ 只在 turn_daily ≥0.85 时点；「购买💎30」是冷却付费键，绝不点 |
+| 11 | 兑换星辉 | `uv run python tools/cases/free_star.py` | 1/日 | `--dry --max=1` | 认「带红点的四角金币」；底栏「转盘」红点与本用例无关，别被带偏 |
+| 12 | 十年集结 | `uv run python tools/cases/free_rally.py` | 宝箱+弹幕各1/日 | `--dry --no-wish` | ⭐ 首页「寻宝下方第一张卡」是活动卡翻页区 → 翻出金卡才能点进集结页 |
+| 13 | 战队捐献 | `uv run python tools/cases/guild_donate.py` | 金 3/日 + 钻 3/日 | `--type gold\|diamond\|both --times N --all [--dry]` | 入口在卡片**底部黄键**(226,1129 / 612,1129)，点卡片正中无效；半透明遮罩判层；丢点击重试不重复捐 |
+| 14 | 好友体力 | `uv run python tools/cases/friend_stamina.py` | 1/日(30/30 封顶) | `--dry --max=N` | 入口=首页「无尽模式」正上排最左的**小人 icon**(friend_btn)；回礼弹窗「成功向好友送出了体力」确认后 +150 体力(可超上限)；满 30/30 后再点**无任何弹层**(静默无效，不是「次数不足」提示层) → 用键上红角标(像素计数)区分「丢点击」与「今日已无待收」；键外观收赠前后**逐像素相同**(差 0.0)不能判已领；「好友」标题牌是**通用标题牌**(其它页 0.883 误命中) → 页面标志用 fr_counter |
+| 15 | 逐星补给 | `uv run python tools/cases/star_supply.py` | 领5次=50信标/次 + 信标×5 各1/日 | `--dry --times N --no-back` | 入口=闯关页「逐星长阶」横幅(stage_stair，美术会轮换→只裁文字)→左下「逐星补给」(ss_entry)→面板「领5次」(ss_claim5，**×1/×5 是领几次不是价格，每次 10 逐星信标**，领5次花 50 → 得 5×(黑匣密钥30+金币3000))→恭喜获得「领取」(claim_btn 复用)→面板 X(ss_close)→长阶页 ×5 装置(ss_beacon，可领带红点/已领**装置整个消失**)→逐星信标×5；领5次是消耗动作默认只做 1 次且**无覆盖层不重试**(防重复消耗)，×5 免费可重试；面板半透明压暗(ss_entry 在面板下仍 0.97)→判层必须 PANEL 先于 STAIR；按钮坐标目测差 8px 就点空→用颜色测 bbox |
+| 16 | 无尽模式-世界竞赛 | `uv run python tools/cases/endless_world.py` | 6/日 | `--times N --allow-capped [--dry] [--no-back]` | 闪击次数用尽会自动改用「匹配」；挑战币达上限默认放弃(必须 --allow-capped 才跑)；战前准备买道具前先读图标左上角金徽标的持有数(wb/icount.py，实测徽标=持有数)：已有 ≥3 不买(省钱)，1/2 补到 3，无徽标按 0 照买，徽标认不出保守不买(存图留证)；得分≥400万 由 wb/bscore.py 逐字读数驱动拖顶收尾(需连续两次复核；读数不可信一律判未达)；拖顶时机：明确≥400万(复核两次)或超时兜底(保留原设计)；判分收紧后不再出现假阳性提前拖；回首页用 nav_home 而**非** kit.goto_home 的 ral_back（实测世界竞赛页 nav_home 0.975 vs ral_back 0.867、结算页 ral_back 0.000）；时间走 kit.now/nap（自检虚拟时钟可拦）；dry 出计划且 exit=0（点击不生效→跨页步骤不规划，无法真验流程） |
 
 ### 裁剪工具（`tools/crop/`，11 个）
 
@@ -384,11 +385,11 @@ wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁
 wb/registry.py     用例注册表（清单单一事实源：smoke 校验与 README 清单都读它）
 wb/selftest_kit.py 离线回放脚手架（实测帧 + 点击驱动状态机，零消耗验证分支）
 wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）
-tools/cases/       15 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, boss_mode, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, friend_stamina, star_supply, endless_world
+tools/cases/       16 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, boss_mode, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, friend_stamina, star_supply, endless_world
 tools/crop/        11 个模板裁剪工具: crop_home, crop_stage, crop_boss, crop_boss_flash, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_rally, crop_star
 tools/selftest/    14 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, free_stamina_selftest, free_rally_selftest, boss_mode_selftest, guild_donate_selftest, sweep_stage_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, smoke
 tools/maint/       7 个维护工具: live_check, battle_watch, close_popup, clear_bag, docs, build_digits, build_bscore_digits
-templates/         按钮模板图（180 张，由 crop_* 用例与运行期裁剪产出）
+templates/         按钮模板图（183 张，由 crop_* 用例与运行期裁剪产出）
 shots/             截图：snap_* 校准源、*_selftest 判层夹具、montage 预览、坐标 CSV
 ```
 <!-- END:STRUCTURE -->
