@@ -41,8 +41,14 @@ PLAN = """[dry] 计划:
 
 
 def claim_button(sc: kit.Screen):
-    """弹窗内当前领取按钮: 绿「免费领取」或 蓝「看广告领取」。"""
-    return sc.find_any(("exp_free", "exp_video"))
+    """弹窗内当前领取按钮: 绿「免费领取」或 蓝「看广告领取」→ (名字, 命中)。
+
+    ⚠ find_any 返回的是 (命中, 名字)，本函数按调用方约定换成 (名字, 命中)。
+    2026-10-09 实跑事故: 返回顺序写反 → 调用方拿到 name=(x,y,score)、hit="exp_free"，
+    `if hit is None` 判不出、随后 sc.click(hit) 把字符串当命中结果 → ValueError 崩溃。
+    """
+    hit, name = sc.find_any(("exp_free", "exp_video"))
+    return name, hit
 
 
 def handle_reward(sc: kit.Screen, idx: int) -> bool:

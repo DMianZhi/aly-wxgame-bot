@@ -591,6 +591,12 @@ def run_case(name: str, title: str, fn, *, plan: str = "", prefix: str = "",
         except KeyboardInterrupt:
             log("被中断(急停: 鼠标甩左上角 / Ctrl+C) → 收尾")
             code = 1
+        except Exception as e:                    # 未预期异常：留证 + 仍走 finally 收尾
+            import traceback
+            log(f"[fail] 未预期异常 {type(e).__name__}: {e} → 留证并收尾")
+            traceback.print_exc()
+            sc.shot(f"{name}_crash")
+            code = 1
         finally:
             if not args.dry and not args.no_back:
                 goto_home(sc)
