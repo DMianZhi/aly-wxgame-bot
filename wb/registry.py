@@ -7,7 +7,7 @@
 分组（tools/ 下的四个子目录）
     daily     15 个每日用例   tools/cases/     —— 一个用例一个文件，失败不互相影响
     crop      11 个裁剪工具   tools/crop/      —— 改坐标/加模板后重跑即可整页重裁
-    selftest  13 个测试       tools/selftest/  —— 12 份离线回放自检 + 冒烟
+    selftest  14 个测试       tools/selftest/  —— 13 份离线回放自检 + 冒烟
     maint      7 个维护工具   tools/maint/     —— 运行期辅助/体检/文档生成
 
 字段
@@ -123,6 +123,10 @@ SELFTESTS = [
     _e("free_treasure_selftest", "寻宝离线自检", SELFTEST, kit=True,
        note="4 用例：广告中零点击(安全属性)/广告播完才关/按 x 升序双宝箱/dry/并发锁；"
             "广告与领取帧为模板合成，底帧为实测帧"),
+    _e("free_stamina_selftest", "免费体力离线自检", SELFTEST, kit=True,
+       note="5 用例：首页假阳性帧(合成 stamina_close 0.897≈实测 0.904)旧判在场/新判不在场＋收尾零点击"
+            "＋首页仍点体力入口＋真弹窗仍判在场(灰键 0.73 非免费)＋次数耗尽全链路点真 X 收尾；"
+            "修 POPUP_TH=0.95（默认 0.86 会把首页轮播误判成弹窗）"),
     _e("free_rally_selftest", "十年集结离线自检", SELFTEST, kit=True,
        note="6 用例：全链路 9 点逐步比对金标准 / 已领跳过 / 未知页中止 / dry / --no-wish / 并发锁"),
     _e("boss_mode_selftest", "BOSS 闪击离线自检", SELFTEST, kit=True,
