@@ -494,14 +494,16 @@ CORE_FLAGS = {
 
 
 def parse_args(argv: list[str] | None = None, *, extra: tuple[str, ...] = (),
-               extra_kv: tuple[str, ...] = (), default_max: int = 1) -> Args:
+               extra_kv: tuple[str, ...] = (), default_max: int = 1,
+               default_timeout: float = 900.0) -> Args:
     """统一 CLI 解析（零依赖，手写以支持 `--times=2` 与 `--times 2` 两种写法）。
 
     extra: 用例自定义的**布尔**开关，例如 ("--no-wish", "--snap")；
     extra_kv: 用例自定义的**带值**开关，例如 ("--station",) → args.extra["station"]。
     default_max: 未传 --max 时的默认次数（如 free_sweep 默认 5 轮）。
+    default_timeout: 未传 --timeout 时的看门狗秒数（多轮长用例要放宽，如 endless 6 轮）。
     """
-    a = Args(max=default_max)
+    a = Args(max=default_max, timeout=default_timeout)
     argv = list(sys.argv[1:] if argv is None else argv)
     i = 0
     while i < len(argv):
@@ -552,13 +554,14 @@ def run_case(name: str, title: str, fn, *, plan: str = "", prefix: str = "",
              lock_ttl: float = 600.0, th: float = TH, need_home: bool = False,
              argv: list[str] | None = None, extra: tuple[str, ...] = (),
              extra_kv: tuple[str, ...] = (),
-             default_max: int = 1) -> int:
+             default_max: int = 1, default_timeout: float = 900.0) -> int:
     """用例统一入口：解析参数 → 开屏 → 单实例锁 → 跑 → 超时留证 → 收尾回首页。
 
     fn(sc, args) -> bool  返回「这次任务是否达成目标」。
     退出码: 0 成功 / 1 未达成 / 2 环境问题(没窗口等) / 3 已有实例在跑 / 4 超时。
     """
-    args = parse_args(argv, extra=extra, extra_kv=extra_kv, default_max=default_max)
+    args = parse_args(argv, extra=extra, extra_kv=extra_kv, default_max=default_max,
+                      default_timeout=default_timeout)
     _bot.configure_mouse(args.dry)
     banner(title, plan=plan, dry=args.dry)
     log(f"参数 dry={args.dry} max={args.max} times={args.times} all={args.all} "
