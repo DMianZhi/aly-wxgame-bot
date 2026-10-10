@@ -34,6 +34,11 @@ JUMP_WAIT = 8.0           # 点免费后等跳过卡弹窗出现的秒数
 # 但首页右侧轮播区偶尔能让它配到 0.904（≥默认 0.86）→ 会用默认阈值会误判
 # 「弹窗已开」而跳过点入口、并在收尾时盲点首页。两边分得开，取 0.95。
 POPUP_TH = 0.95
+# 2026-10-10 美术轮换: 真弹窗上 stamina_close 实测掉到 0.905(位置不变) ——
+# 与首页轮播假阳性 0.904 完全重叠, X 单模板再也分不开。
+# 辅助判据 sweep_close(弹窗右上角同款 X, (750,415)): 弹窗两版实测 0.970/0.994, 首页 <0.90。
+POPUP_TH_LOOSE = 0.88
+POPUP_AUX_TH = 0.90
 
 PLAN = """[dry] 计划:
   首页 --(stamina_entry 体力入口)--> 体力购买弹窗(stamina_close)
@@ -46,8 +51,18 @@ PLAN = """[dry] 计划:
 
 
 def popup_open(sc: kit.Screen) -> bool:
-    """弹窗是否真在场（必须用 POPUP_TH，默认阈值在首页会假阳性）。"""
-    return sc.find("stamina_close", th=POPUP_TH) is not None
+    """弹窗是否真在场：X 主判据(0.95) + 美术轮换辅助判据(sweep_close ≥0.90)。"""
+    if sc.find("stamina_close", th=POPUP_TH) is not None:
+        return True
+    return sc.find("sweep_close", th=POPUP_AUX_TH) is not None
+
+
+def _popup_x(sc: kit.Screen):
+    """弹窗的关闭 X: 主模板(≥0.88, 美术轮换后真弹窗 0.905) → 通用 X(sweep_close)。"""
+    x = sc.find("stamina_close", th=POPUP_TH_LOOSE)
+    if x is not None:
+        return x
+    return sc.find("sweep_close", th=POPUP_AUX_TH)
 
 
 def goto_popup(sc: kit.Screen, idx: int) -> bool:
@@ -59,18 +74,36 @@ def goto_popup(sc: kit.Screen, idx: int) -> bool:
         log(f"第{idx}轮: 找不到体力入口，放弃")
         return False
     sc.click(entry, "体力入口(stamina_entry)")
-    if not sc.wait("stamina_close", 6, th=POPUP_TH):
-        log(f"第{idx}轮: 弹窗没开出来")
-        sc.shot(f"fs_fail_entry{idx}")
-        return False
-    return True
+    deadline = kit.now() + 6.0
+    while kit.now() < deadline:
+        if popup_open(sc):
+            return True
+        kit.nap(0.5)
+    log(f"第{idx}轮: 弹窗没开出来")
+    sc.shot(f"fs_fail_entry{idx}")
+    return False
 
 
 def close_popup(sc: kit.Screen) -> None:
-    """收尾关弹窗(别把弹窗留给下一个用例)。"""
-    x = sc.find("stamina_close", th=POPUP_TH)
-    if x is not None:
-        sc.click(x, "关闭弹窗(收尾)")
+    """收尾关弹窗(别把弹窗留给下一个用例)。
+
+    ⚠ 必须先过 popup_open 这道门(强判据)再点 X: _popup_x 的松阈值 0.88 在首页
+    轮播假阳性帧上也会命中(0.897) —— 直接点就复发了「盲点首页」老 bug(自检②锁的)。
+    点了之后复查, 还开着就换另一个 X 再点(丢点击重试)。
+    """
+    if not popup_open(sc):
+        return
+    first = _popup_x(sc)
+    if first is None:
+        return
+    sc.click(first, "关闭弹窗(收尾)")
+    kit.nap(1.5)
+    if not popup_open(sc):
+        return
+    second = sc.find("sweep_close", th=POPUP_AUX_TH) if first[0] < 730 \
+        else sc.find("stamina_close", th=POPUP_TH_LOOSE)
+    if second is not None:
+        sc.click(second, "关闭弹窗(收尾·备用X)")
 
 
 def one_round(sc: kit.Screen, idx: int) -> bool:
@@ -146,6 +179,8 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
             kit.nap(1.2)                          # 领取动画缓冲
         else:
             break                                 # 次数用尽或异常 → 停
+    close_popup(sc)     # ⚠ 没打满额度就退出时弹窗还开着(2026-10-10: 不压暗、stage_btn 满血,
+                        #   is_home 照样判 True → 后续用例的商城入口全被盖住)
     log(f"完成: 成功 {ok} 轮")
     return ok > 0
 

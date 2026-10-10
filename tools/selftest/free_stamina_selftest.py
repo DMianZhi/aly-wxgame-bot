@@ -78,7 +78,11 @@ def scene_popup(rp):
 
 
 def scene_exhausted_round(rp):
-    """⑤ 次数耗尽全链路：真弹窗 → 没有免费按钮 → 点真 X 收尾（恰好 1 次）。"""
+    """⑤ 次数耗尽全链路：真弹窗 → 没有免费按钮 → 点真 X 收尾（恰好 1 次）。
+
+    帧表带一帧 HOME：close_popup 现在带「点了复查, 还开着才补点备用 X」的
+    丢点击重试 —— 回放里点 X 翻到 HOME(弹窗已关) → 不得补点。
+    """
     sc = kit.open_screen(th=0.86, prefix="_fs_self")
     got = fs.one_round(sc, 1)
     clicks = list(rp.real_clicks)
@@ -94,5 +98,5 @@ if __name__ == "__main__":
         ("② 假阳性帧收尾零点击", [FP], scene_fp_noclick),
         ("③ 首页仍会去点体力入口", [HOME], scene_entry),
         ("④ 真弹窗仍判在场 + 灰键非免费", [POPUP], scene_popup),
-        ("⑤ 次数耗尽链路: 点真 X 收尾一次", [POPUP], scene_exhausted_round),
+        ("⑤ 次数耗尽链路: 点真 X 收尾一次", [POPUP, HOME], scene_exhausted_round),
     ]))
