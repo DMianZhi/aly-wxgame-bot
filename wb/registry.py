@@ -7,12 +7,12 @@
 分组（tools/ 下的四个子目录）
     daily     22 个每日用例   tools/cases/     —— 一个用例一个文件，失败不互相影响
     crop      13 个裁剪工具   tools/crop/      —— 改坐标/加模板后重跑即可整页重裁
-    selftest  20 个测试       tools/selftest/  —— 19 份离线回放自检 + 冒烟
+    selftest  21 个测试       tools/selftest/  —— 20 份离线回放自检 + 冒烟
     maint      7 个维护工具   tools/maint/     —— 运行期辅助/体检/文档生成
 
 字段
     quota  每日额度（"-" 表示不限或非每日）
-    flags  支持的开关（通用: --dry 永远有）
+    flags  支持的开关（通用: --dry / --json 永远有）
     kit    是否已迁到 wb/kit（渐进迁移标记；未迁的老用例仍能独立跑）
 """
 from __future__ import annotations
@@ -264,6 +264,11 @@ SELFTESTS = [
        note="6 用例（2 张 812x1518 真帧：活动关卡页全页 + 闪击对话框[只开未确认零消耗拍的]）："
             "判层(对话框先于活动页) ＋闪击键锚点落点(564,588) ＋极难页签**预测点点击**"
             "(卡1页签默认非选中态, 共享选中模板仅 0.867) ＋跨卡不串台(vs 卡2/卡3 ≤0.14) ＋dry ＋锁"),
+    _e("json_contract_selftest", "--json 契约离线自检", SELFTEST, kit=True,
+       note="5 用例（真起子进程 + 分离两条管道，唯一能测到「stdout 干净」的办法）："
+            "--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) "
+            "＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) "
+            "＋人类模式 stdout **完全为空**(日志已全让给 stderr)"),
     _e("smoke", "冒烟测试", SELFTEST, flags="-",
        note="配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性"),
 ]
@@ -363,10 +368,12 @@ def render_structure() -> str:
     return "\n".join([
         "```",
         "main.py            入口：check / snap（每日任务都在 tools/ 下独立运行）",
+        "wbtui/             交互外壳：rich 菜单式 TUI（uv run python -m wbtui）",
         "config.toml        阈值、拟人点击参数、窗口裁边",
         "wb/cfg.py          配置加载（路径/阈值/点击参数的唯一来源）",
         "wb/bot.py          窗口定位、截屏、模板匹配、拟人点击",
-        "wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁 / 广告流 / 回首页 / 看门狗）",
+        "wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁 / 广告流 / 回首页 / 看门狗）"
+        "；--json 结构化结果契约（stdout 一行 JSON，日志走 stderr）",
         "wb/registry.py     用例注册表（清单单一事实源：smoke 校验与 README 清单都读它）",
         "wb/selftest_kit.py 离线回放脚手架（实测帧 + 点击驱动状态机，零消耗验证分支）",
         "wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）",

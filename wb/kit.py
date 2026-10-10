@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import sys
 import time
@@ -41,8 +42,19 @@ TH_LOOSE = 0.80          # 半透明弹层里的元素，分数略降
 # ---------------------------------------------------------------- 日志
 
 
-def log(msg: str) -> None:
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+def log(msg: str, *, _step: bool = True) -> None:
+    """统一日志 —— **一律写 stderr**，把 stdout 完整让给 --json 结果。
+
+    （2026-10-10 改道：之前写 stdout，导致 --json 模式下 AI 侧无法
+     `json.loads(stdout)`。终端里 stderr 照常可见，`2>&1` / `2>/dev/null` 可自由重定向。）
+
+    副作用：_step=True 时，若本行是「语义节点」（以 ⚠/✗/✓/√/→ 开头），自动登记进
+    --json 的 steps（v1 的零侵入做法，见 Result）。
+    """
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
+    if _step and CURRENT is not None and msg.lstrip().startswith(STEP_PREFIX):
+        ok = not msg.lstrip().startswith(("⚠", "✗"))
+        CURRENT.add_step(msg, ok)
 
 
 def banner(title: str, *, plan: str = "", dry: bool = False) -> None:
@@ -50,6 +62,62 @@ def banner(title: str, *, plan: str = "", dry: bool = False) -> None:
     if dry and plan:
         for line in plan.strip().splitlines():
             log(line)
+
+
+# ---------------------------------------------------------------- 结果收集（--json）
+
+# 「语义节点」前缀：这些开头的日志行自动进 steps（ok 判定：⚠/✗ 视为不顺利）
+STEP_PREFIX = ("⚠", "✗", "✓", "√", "→")
+STEP_MAX = 100      # steps 上限（防个别用例刷屏把 JSON 撑大）
+
+
+class Result:
+    """一次用例运行的机读结果 = --json 契约的载荷。
+
+    零侵入用例：shots 由 Screen.shot() 自动登记；steps 由 log() 的语义节点行派生。
+    用例若想主动补充更精确的节点，调 kit.note()。
+    """
+
+    def __init__(self, case: str, title: str, dry: bool, started: float):
+        self.case = case
+        self.title = title
+        self.dry = dry
+        self.started = started
+        self.shots: list[str] = []
+        self.steps: list[dict] = []
+        self.error: str | None = None
+
+    def add_shot(self, name: str) -> None:
+        if name not in self.shots:
+            self.shots.append(name)
+
+    def add_step(self, text: str, ok: bool = True) -> None:
+        if len(self.steps) >= STEP_MAX:
+            return
+        self.steps.append({"t": text.strip(), "ok": bool(ok)})
+
+    def as_dict(self, ok: bool, code: int) -> dict:
+        return {
+            "case": self.case,
+            "title": self.title,
+            "ok": bool(ok),
+            "code": int(code),
+            "dry": self.dry,
+            "dur": round(now() - self.started, 1),
+            "shots": self.shots,
+            "steps": self.steps,
+            "error": self.error,
+        }
+
+
+CURRENT: "Result | None" = None     # run_case 运行期间指向本次收集器，其余时刻为 None
+
+
+def note(text: str, ok: bool = True) -> None:
+    """用例主动登记一个语义节点：正常记日志 + 进 --json 的 steps（避免被前缀规则漏掉）。"""
+    log(text, _step=False)
+    if CURRENT is not None:
+        CURRENT.add_step(text, ok)
 
 
 class CaseTimeout(RuntimeError):
@@ -359,6 +427,8 @@ class Screen:
         out = SHOTS_DIR / f"_{self.prefix}{tag}.png"
         cv2.imwrite(str(out), self.grab())
         log(f"留证截图 {out.name}")
+        if CURRENT is not None:      # --json 契约: 留证截图自动进 shots（零侵入用例）
+            CURRENT.add_shot(out.name)
         return out
 
 
@@ -498,6 +568,7 @@ class Args:
     type: str | None = None      # 目标类型（如 guild_donate 的 gold/diamond/both）
     no_back: bool = False        # 不自动回首页
     yes: bool = False            # 少问一句（无交互时用）
+    json_out: bool = False       # --json：stdout 只打一行结构化结果（见 Result）
     timeout: float = 900.0       # 硬看门狗（秒）
     extra: dict = field(default_factory=dict)
 
@@ -516,6 +587,7 @@ CORE_FLAGS = {
     "--type": "目标类型（用例自定义，如 gold/diamond/both）",
     "--no-back": "结束后不自动回首页",
     "--yes": "不经确认直接执行（默认即如此，保留给未来交互）",
+    "--json": "stdout 只输出一行结构化结果 JSON（供 AI/脚本调用；人类日志走 stderr）",
     "--timeout": "总时长看门狗秒数（默认 900）",
 }
 
@@ -561,6 +633,8 @@ def parse_args(argv: list[str] | None = None, *, extra: tuple[str, ...] = (),
             a.no_back = True
         elif key == "--yes" or key == "-y":
             a.yes = True
+        elif key == "--json":
+            a.json_out = True
         elif key == "--timeout":
             a.timeout = float(take())
         elif key in extra:
@@ -586,6 +660,8 @@ def run_case(name: str, title: str, fn, *, plan: str = "", prefix: str = "",
 
     fn(sc, args) -> bool  返回「这次任务是否达成目标」。
     退出码: 0 成功 / 1 未达成 / 2 环境问题(没窗口等) / 3 已有实例在跑 / 4 超时。
+
+    --json 模式下，stdout 只在最后打**一行**结构化结果（Result），人类日志全走 stderr。
     """
     args = parse_args(argv, extra=extra, extra_kv=extra_kv, default_max=default_max,
                       default_timeout=default_timeout)
@@ -594,15 +670,42 @@ def run_case(name: str, title: str, fn, *, plan: str = "", prefix: str = "",
     log(f"参数 dry={args.dry} max={args.max} times={args.times} all={args.all} "
         f"type={args.type} no_back={args.no_back} extra={args.extra or '-'}")
 
+    global CURRENT
+    res = Result(name, title, args.dry, now())
+    CURRENT = res
+    try:
+        code = _run_locked(name, fn, args, prefix=prefix, lock_ttl=lock_ttl,
+                           th=th, need_home=need_home)
+    finally:
+        CURRENT = None
+
+    if args.dry and code == 1:      # dry 只是演练：没点成不算失败
+        log("（dry 演练，未点击 → 不计失败）")
+        code = 0
+
+    log(f"结束 code={code}" + ("（dry 演练，未点击）" if args.dry else ""))
+    if args.json_out:
+        # stdout 只此一行：AI/脚本直接 json.loads(get_output())
+        print(json.dumps(res.as_dict(code == 0, code), ensure_ascii=False), flush=True)
+    return code
+
+
+def _run_locked(name: str, fn, args: Args, *, prefix: str, lock_ttl: float,
+                th: float, need_home: bool) -> int:
+    """run_case 的主体（开屏 → 锁 → 跑 → 留证 → 收尾）。返回退出码。"""
     try:
         sc = open_screen(dry=args.dry, th=th, prefix=prefix, timeout=args.timeout)
     except RuntimeError as e:
         log(f"[fail] {e}")
+        if CURRENT is not None:
+            CURRENT.error = str(e)
         return 2
 
     code = 0
     with single_instance(name, lock_ttl, dry=args.dry) as got:
         if not got:
+            if CURRENT is not None:
+                CURRENT.error = "已有实例在跑"
             return 3
         try:
             if need_home and not is_home(sc):
@@ -614,6 +717,8 @@ def run_case(name: str, title: str, fn, *, plan: str = "", prefix: str = "",
         except CaseTimeout:
             log(f"[timeout] 用例超过 {args.timeout:.0f}s 看门狗 → 留证并收尾")
             sc.shot(f"{name}_timeout")
+            if CURRENT is not None:
+                CURRENT.error = "timeout"
             code = 4
         except KeyboardInterrupt:
             log("被中断(急停: 鼠标甩左上角 / Ctrl+C) → 收尾")
@@ -623,10 +728,13 @@ def run_case(name: str, title: str, fn, *, plan: str = "", prefix: str = "",
             log(f"[fail] 未预期异常 {type(e).__name__}: {e} → 留证并收尾")
             traceback.print_exc()
             sc.shot(f"{name}_crash")
+            if CURRENT is not None:
+                CURRENT.error = f"{type(e).__name__}: {e}"
             code = 1
         finally:
             if not args.dry and not args.no_back:
                 goto_home(sc)
+    return code
 
     if args.dry and code == 1:      # dry 只是演练：没点成不算失败
         log("（dry 演练，未点击 → 不计失败）")

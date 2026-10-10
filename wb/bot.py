@@ -4,6 +4,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes  # noqa: F401  确保 ctypes.wintypes 可用
 import random
+import sys
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -323,7 +324,7 @@ def match_adaptive(img: np.ndarray, tpl: np.ndarray, threshold: float):
     if (w, h) not in _SIZE_NOTED:
         _SIZE_NOTED.add((w, h))
         print(f"[窗口自适应] 客户区 {w}x{h} ≠ 模板基准 {REF_SIZE[0]}x{REF_SIZE[1]}，"
-              f"按 {cands[best_i]} 归一后匹配（命中坐标已反映射）")
+              f"按 {cands[best_i]} 归一后匹配（命中坐标已反映射）", file=sys.stderr)
     return best
 
 
@@ -416,7 +417,8 @@ def _ensure_foreground(rect: WinRect) -> None:
             if user32.GetForegroundWindow() == rect.hwnd:
                 time.sleep(0.15)
                 return
-    print("[warn] 游戏窗口未能置于前台，点击可能落在其他窗口上；请手动点一下游戏窗口")
+    print("[warn] 游戏窗口未能置于前台，点击可能落在其他窗口上；请手动点一下游戏窗口",
+          file=sys.stderr)
 
 
 def drag_xy(x1: int, y1: int, x2: int, y2: int, rect: WinRect, dry_run: bool = False,
