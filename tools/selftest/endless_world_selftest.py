@@ -229,11 +229,23 @@ class _PrepStub:
         self.drags.append(a)
 
 
-PREP = "_endless_r1_prep.png"                  # 战前准备真帧：炽焰冲击 9 / 烈火 13 / 圣光 1 / 灰烬 10
-PREP_ROWS = {"prep_it_flame": (702, 525), "prep_it_fire": (702, 679), "prep_row_ash": (702, 987)}
-PREP3 = "_endless_r3_prep.png"                 # 另一滚动位（行距同 154，但整体上移）→ 验行→徽标映射
-PREP3_ROWS = {"prep_it_flame": (702, 430), "prep_it_fire": (702, 584), "prep_row_ash": (702, 893)}
+# ⚠ 夹具必须放在 `_endlessfx_` 命名空间: 用例的每轮留证就是 `_endless_r<N>_prep.png`
+#   (2026-10-10 踩过: 夹具叫 _endless_r1_prep.png, 真跑一轮把它覆盖成新帧 → 徽标读不出 → 假 FAIL)
+PREP = "_endlessfx_prep_ok.png"                # 战前准备真帧：炽焰冲击 9 / 烈火 13 / 灰烬 10 (原 _endless_r3_prep)
+PREP_ROWS = {"prep_it_flame": (702, 430), "prep_it_fire": (702, 584), "prep_row_ash": (702, 893)}
+PREP_UNK = "_endlessfx_prep_unk.png"           # 真帧(2026-10-10 实战)：第1道具徽标读不出 → 保守不买
+PREP_UNK_ROWS = {"prep_it_flame": (702, 525), "prep_it_fire": (702, 679), "prep_row_ash": (702, 987)}
 _FRAME: dict[str, object] = {}
+
+
+def _migrate_fixtures() -> None:
+    """旧名 → fx 名一次性迁移（fx 已存在则不动；旧名会被真跑覆盖, 不可依赖）。"""
+    import shutil
+    pairs = [("_endless_r3_prep.png", PREP), ("_endless_r1_prep.png", PREP_UNK)]
+    for src, dst in pairs:
+        if not (st.SHOTS_DIR / dst).is_file() and (st.SHOTS_DIR / src).is_file():
+            shutil.copy(str(st.SHOTS_DIR / src), str(st.SHOTS_DIR / dst))
+            print(f"[迁移] {src} → {dst}（夹具入 fx 命名空间, 防真跑覆盖）")
 
 
 def _prep_frame(name: str = PREP):
@@ -258,9 +270,14 @@ def case_buy_enough(rp):
     return _no_buy_case(PREP, PREP_ROWS)
 
 
-def case_buy_enough_r3(rp):
-    """⑪ 换一帧（列表滚动位置不同）仍是 ≥3 不买：锁行→徽标映射不依赖固定 y。"""
-    return _no_buy_case(PREP3, PREP3_ROWS)
+def case_buy_unk(rp):
+    """⑪ 真实不可读徽标(第1道具 None) → **保守不买**、另两件 ≥3 也不买 → 零点击。"""
+    f = _prep_frame(PREP_UNK)
+    stub = _PrepStub(f, PREP_UNK_ROWS)
+    ew.buy_items(stub)
+    vals = [ew.icount.held(f, y)[0] for _, y in PREP_UNK_ROWS.values()]
+    good = not stub.clicks
+    return good, f"持有{vals}(第1项读不出) → 点击 {stub.clicks}（期望空: 认不出=保守不买）"
 
 
 def case_buy_short(rp):
@@ -298,10 +315,11 @@ SCENES = [
     ("dry 零副作用", [F["hi"]], case_dry),
     ("并发锁互斥", [F["arena"]], case_lock),
     ("买道具: 持有≥3 不买（真帧徽标）", [PREP], case_buy_enough),
-    ("买道具: 换帧/换滚动位仍不买", [PREP3], case_buy_enough_r3),
+    ("买道具: 徽标读不出 → 保守不买（2026-10-10 实战帧）", [PREP_UNK], case_buy_unk),
     ("买道具: 不足才买/认不出不买", [PREP], case_buy_short),
 ]
 
 
 if __name__ == "__main__":
+    _migrate_fixtures()
     st.run_one("endless_world 离线自检（局内判据/收尾，不消耗次数；虚拟时钟驱动）", SCENES)

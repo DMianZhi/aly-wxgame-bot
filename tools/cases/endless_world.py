@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""用例: 无尽模式-世界竞赛（默认 6 次/日）。
+"""用例: 无尽模式-世界竞赛（默认 2 次/日 = 2 次闪击 × 每次 3 局 = 共 6 局）。
 
 链路
   1) 限时小组赛（常显，可能不存在）：hs_group_done→跳过；hs_group→点→立即参加→关X
@@ -19,7 +19,7 @@
     带虚拟时钟的替身，直接 import time 会绕过它 → 自检里真等（局内上限 210s 就是痛点）。
 
 用法
-  uv run python tools/cases/endless_world.py [--times 6] [--allow-capped] [--dry] [--no-back]
+  uv run python tools/cases/endless_world.py [--times 2] [--allow-capped] [--dry] [--no-back]
 
 已知待办
   - 局内得分读数已可用（wb/bscore.py + templates/bdigits，战内青蓝粗体单独一套模板）:
@@ -612,7 +612,9 @@ def one_round(sc: kit.Screen, idx: int, rounds: int, allow_capped: bool) -> bool
 
 
 def run(sc: kit.Screen, args: kit.Args) -> bool:
-    rounds = max(1, args.n_times(6))
+    # 默认 2 次: 1 次执行 = 1 次闪击(游戏内自动 3 局) → 2 次 = 6 局 = 全天额度
+    # (2026-10-10 用户纠正: 旧默认 6 把「6 局」错当「6 次」, 会多出击白打匹配)
+    rounds = max(1, args.n_times(2))
     allow_capped = bool(args.extra.get('allow_capped'))
     if sc.dry:
         plan_dry(sc)
@@ -635,8 +637,8 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
 if __name__ == '__main__':
     raise SystemExit(kit.run_case(
         'endless_world', '无尽模式-世界竞赛', run,
-        plan=DRY_PLAN + '（默认 6 次/日，单轮最长约 7 分钟）', prefix='endless_',
-        lock_ttl=3600, th=TH, extra=('--allow-capped',), default_max=6,
-        # 6 轮 ×（局内上限 210s + 导航/结算）远超 kit 默认 900s 看门狗 → 放宽到 100 分钟
+        plan=DRY_PLAN + '（默认 2 次/日 = 2 次闪击 × 3 局 = 6 局，单轮最长约 7 分钟）', prefix='endless_',
+        lock_ttl=3600, th=TH, extra=('--allow-capped',), default_max=2,
+        # 2 轮 ×（局内上限 210s + 导航/结算）≈ 15 分钟; 上限放宽到 100 分钟兼容 --times 手动加打
         default_timeout=6000.0,
     ))

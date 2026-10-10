@@ -31,6 +31,7 @@ NAV_WAIT = 2.5              # 点完导航键等页面切换
 UNKNOWN_TOLERATE = 3        # 连续几次 unknown 才认输(关卡页空载帧可达数秒)
 NEAR_TOL = 60               # 命中点与锚点预测的最大距离(超过认为是别的卡)
 DIALOG_WAIT = 15.0          # 点闪击后等对话框/次数提示
+ENTER_WAIT = 15.0           # 点对话框「闪击」后等真的进局(离开卡页+对话框)
 
 
 def find(sc: kit.Screen, name: str, th: float = TH):
@@ -185,6 +186,17 @@ def fight(sc: kit.Screen, title_tpl: str, timeout: float,
     return battle.fight(sc, out_of_battle, timeout=timeout, label=label)
 
 
+def _close_dialog_quiet(sc: kit.Screen) -> None:
+    """关掉闪击对话框(**不确认**, 零消耗)。X = sweep_close/gd_close 同款。"""
+    x = find(sc, "sweep_close", 0.90) or find(sc, "gd_close", 0.90)
+    if x is not None:
+        sc.click(x, "关闭闪击对话框")
+        kit.nap(1.5)
+    else:
+        log("[warn] 对话框上找不到关闭 X → 留证(可能残留, 下轮 ensure 会处理)")
+        sc.shot("dialog_no_x")
+
+
 def one_round(sc: kit.Screen, *, title_tpl: str, dlg_tpl: str,
               flash_off, flash_calib, timeout: float = 480.0,
               before_flash=None) -> bool:
@@ -229,6 +241,15 @@ def one_round(sc: kit.Screen, *, title_tpl: str, dlg_tpl: str,
             log("未出现闪击对话框，放弃本轮")
             sc.shot("nodialog")
             return False
+        # ⚠ 难度闸门: 对话框标题必须是**本卡的**(如「闪击-陨石陷阱 极难」) ——
+        #   「极难」页签没点上时弹的可能是普通难度的对话框, 闪了就是白花体力。
+        #   dlg_tpl 含卡名+难度, 别的对话框配不上(2026-10-10 加, 三卡通用)。
+        dt = find(sc, dlg_tpl, TH)
+        if dt is None:
+            log(f"⚠ 对话框标题不是本卡极难({dlg_tpl} 未命中) → 关掉放弃(不闪错难度)")
+            sc.shot("wrong_dialog")
+            _close_dialog_quiet(sc)
+            return False
     else:
         log("已是闪击对话框(上次留下/刚打开的) → 直接闪击")
 
@@ -240,6 +261,21 @@ def one_round(sc: kit.Screen, *, title_tpl: str, dlg_tpl: str,
         return False
     sc.click(go, "闪击(确认，次数/体力=游戏默认)")
     kit.nap(3.0)
+
+    # ⚠ 必须等「真的进局」再开打: 点了闪击但被吞/被拒时仍停在卡页 —— 直接进
+    #   fight() 会在卡页上盲点技能坐标, 且 out_of_battle 立刻数满「连续 3 次在卡页」
+    #   → 假完成(2026-10-10 导弹猎场: 结算页 0 张, 次数根本没消耗)。同 guild_boss.sortie。
+    deadline = kit.time.time() + ENTER_WAIT
+    entered = False
+    while kit.time.time() < deadline:
+        if find(sc, "mh_dlg_go") is None and not on_card(sc, title_tpl):
+            entered = True
+            break
+        kit.nap(1.0)
+    if not entered:
+        log("点了闪击但没进局(对话框/卡页还在) → 本轮失败(留证, 不算完成)")
+        sc.shot("flash_noenter")
+        return False
 
     ok, rounds, revives = fight(sc, title_tpl, timeout)
     log(f"本轮闪击{'完成' if ok else '未完成'} (结算页 {rounds} 张 / 复活 {revives} 次)")
