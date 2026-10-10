@@ -123,7 +123,7 @@ class Screen:
 
     def __init__(self, rect, *, th: float = TH, dry: bool = False, prefix: str = "",
                  deadline: float | None = None, jitter: int = 2,
-                 delay: tuple[float, float] = (0.4, 0.9)):
+                 delay: tuple[float, float] = (0.12, 0.35)):
         self.rect = rect
         self.th = th
         self.dry = dry
@@ -379,6 +379,7 @@ def open_screen(*, dry: bool = False, th: float = TH, prefix: str = "",
 HOME_MARK = "stage_btn"     # 首页专属标志（nav_home 在寻宝/兑换/转盘子页也命中，不能用）
 BACK_KEY = "ral_back"       # 子页通用返回键
 HOME_CLOSE = "gd_close"     # 子页面板右上 X（面板类页面）
+HOME_NAV = "nav_home"       # 「回首页」直达键（寻宝 hub 等页没有 ral_back, 只有它）
 
 
 def is_home(sc: Screen) -> bool:
@@ -405,7 +406,12 @@ def dismiss_group_popup(sc: Screen) -> bool:
 
 
 def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
-    """尽力回首页：点通用返回键，直到首页标志出现。dry 模式只记录。"""
+    """尽力回首页：点通用返回键，直到首页标志出现。dry 模式只记录。
+
+    2026-10-10 补 nav_home 回退: 寻宝 hub 等页**没有** ral_back(只有「回首页」直达键)
+    → 旧版回不去、游戏被留在半路，下一个用例起点错乱(free_rally/ free_treasure 全被
+    连累)。ral_back 找不到就试 nav_home(子页 0.975+, 首页标志 stage_btn 已先行拦截)。
+    """
     for i in range(tries):
         if is_home(sc):
             if i:
@@ -416,7 +422,7 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
         if sc.dry:
             log(f"[dry] 会点 返回键({BACK_KEY}) 回首页")
             return True
-        back = sc.find(BACK_KEY)
+        back = sc.find(BACK_KEY) or sc.find(HOME_NAV, 0.90)
         if back is None:
             log("[warn] 找不到返回键，停手（请手动回首页）")
             return False

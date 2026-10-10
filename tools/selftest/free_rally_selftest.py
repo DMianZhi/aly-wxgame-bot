@@ -76,12 +76,18 @@ def case_already_claimed(rp):
 
 
 def case_unknown(rp):
-    """未知页面 → 中止，不盲点。"""
+    """未知页面 → 先试「回首页」直达键(2026-10-10 起点可能被留在寻宝 hub), 仍未知才中止。
+
+    除 nav_home 外**零盲点**: 夹具寻宝页有 nav_home → 恰好点它 1 次, 仍未知 → 中止。
+    """
     s = sc()
     st0 = fr.state(s)
+    nh = s.find("nav_home", 0.90)
     ok = fr.run(s, ARGS)
-    good = (st0 == fr.UNKNOWN) and (ok is False) and not rp.real_clicks
-    return good, f"状态={st0}(期望 ?) run={ok}(期望 False) 点击={rp.real_clicks}(期望空)"
+    exp = [(nh[0], nh[1])] if nh else []
+    good = (st0 == fr.UNKNOWN) and (ok is False) and rp.real_clicks == exp
+    return good, (f"状态={st0}(期望 ?) run={ok}(期望 False) "
+                  f"点击={rp.real_clicks}(期望 {exp or '空'})")
 
 
 def case_dry(rp):
