@@ -61,13 +61,12 @@ COST_IOU = 0.80           # 闸门门限。实测: 夹具金标准帧 1.000; 真
 # (字模取自 814 宽旧帧, 缩放后仍有差异); 不符价的帧远低于此。且闸门已改告警不拦,
 # 门限只影响日志噪声, 不影响行为。
 COST_RECT = (379, 810, 116, 30)   # 详情页「消耗资源」金币数字(基准坐标)
-S_TH = 0.55              # S 徽标判据: 橙心占比下限(颜色判据, 非模板匹配)
-# 现场标定(824x1518 真帧, 窗口 44x44 在格子左上附近 ±14/±18 扫描取最大橙心占比):
-#   正: 现场详情「消耗装备」真 S 格 0.634 / 现场列表 S 行左上 0.816
-#   负: 现场详情第2列 0.000 / 旧帧非S材料格 0.000 / 列表非S行(紫折角) 0.159
-# 对比: 旧模板匹配法 正 0.540 vs 负 0.456(只差 0.09, 换张底图就翻) → 已废弃模板法。
+S_TH = 0.55              # S 徽标判据: 团块填充率下限(tile_s 现在返回合格徽标团的 fill)
+# 2026-10-10 重写为「团块几何」四约束(面积/紧实/填充/悬浮位, 见 S_CC_MIN 处标定):
+#   正: 真 S 徽标 fill 0.88(标定帧原帧与合成贴标一致)
+#   负: 图面橙纹 fill 0.20~0.21 / 图面碎屑 0.57(且中心 +22px 在格顶之下) → 全部 0 分出局
+# 旧纯颜色法已废: 图面自带橙纹的装备能刷到 0.556 > 0.55, 整行绿装被误跳过(真机 0 进阶)。
 BURST_DELAY = 0.04       # 连点期间把 sc.delay 压到这么小(± 连点用)
-DRAIN_MAX = 40           # 单槽 − 最多点几下(防呆)
 GREEN_MIN = 0.15         # 数字牌绿占比阈值(实测: 绿装格 37.9%/39.0%, 非绿格 0.0%)
 LIST_GREEN_MIN = 60      # 列表页绿簇最小面积(预筛, 故意放宽)
 ROW_GAP = 150            # 同一行多个绿簇的 y 归并容差(行距~160, 行内绿簇散布≤~90)
@@ -180,7 +179,8 @@ def drain_slot(sc: kit.Screen, i: int) -> int:
         DRAIN_MAX 封顶才停, 报出来的件数是假的(真机真帧: 持 1 件报 17、持 2 件报 40);
       · 老逻辑每下都要 grab 判一次色(真机 ≈1 秒/下) → 一格清零几十秒(用户嫌慢)。
     新法: 先读数 → 按读数**连点**那么多下(连点期间不取帧) → 复读确认归零(抗丢点击)。
-    读不出数字(缺 4~9 字模) → 退回老逻辑(点到变灰, DRAIN_MAX 封顶), 行为与以前一致。
+    读不出数字(qa_pdig4~9 字模缺失 / 定位失败) → 按**单字上限 9**盲点 + 复读兜底:
+    旧回退「点到变灰」在这个面板上是坏的(「−」永不变灰 → 点满 40 下报假件数), 已废。
     """
     bx, by = _slot_minus(sc, i)
     keep = sc.delay                      # 注意: 可能是 (min,max) 范围元组, 别直接 min()
@@ -188,41 +188,30 @@ def drain_slot(sc: kit.Screen, i: int) -> int:
     got = panel_count(sc, i, sc.grab())
     if got is not None and got <= 0:
         return 0
-    if got is not None:                  # —— 数字牌读得出来: 按读数连点
-        n = got
-        for _ in range(4):               # 最多 4 轮, 每轮至多 60 下(抗丢点击)
-            if got is None or got <= 0:
-                break
-            sc.delay = bdelay
-            try:
-                for _ in range(min(got, 60)):
-                    sc.click_base(bx, by, f"第{i + 1}槽 −")
-            finally:
-                sc.delay = keep
-            got = panel_count(sc, i, sc.grab())
-        if got == 0:
-            log(f"第 {i + 1} 槽数字牌直读 {n} 件 → 连点清零")
-            return n
-        log(f"⚠ 第{i + 1}槽 数字牌读出 {n} 件, 连点后仍剩 {got} → 本行收手(不进阶)")
-        return -1
-    # —— 数字牌读不出(缺字模): 退回老逻辑, 点到变灰
-    n = 0
-    sc.delay = bdelay
-    try:
-        while n < DRAIN_MAX:
-            if not _enabled(sc, bx, by, sc.grab()):
-                break
-            sc.click_base(bx, by, f"第{i + 1}槽 −")
-            n += 1
-    finally:
-        sc.delay = keep
-    # ★ 复核: 减到底该槽的数字牌应已归零。
-    #   实测踩过: 「−」压根没点中时(面板没展开 / 坐标漂), 循环数出来的 n 是**假的**,
-    #   用例还拿这个假数量去选绿槽 → 点进不该进的行、白点 +2 (用户抓到的就是这种)。
-    if tile_green(sc, i, None) > 0.20:
-        log(f"⚠ 第{i+1}槽 减了 {n} 下仍没变灰 → 「−」大概没点中(面板未展开/坐标漂) → 本行收手")
-        return -1
-    return n
+    if got is None:
+        # —— 数字牌读不出(qa_pdig4~9 字模缺失 / 定位失败): 按**单字上限 9**盲点再复读。
+        #   旧回退「点到变灰」在这个面板上是坏的(「−」选满/选 0 都是亮蓝, 变灰不出现 →
+        #   一路点到 DRAIN_MAX 报假件数); 读不出 ⇒ 面板上有字形 ⇒ 持有 ≥4(0~3 有字模必命中),
+        #   而「−」在 0 时点了是 no-op, 盲点多余的下数无害 —— 点完复读确认归零。
+        got = 9
+    n = got
+    for _ in range(4):                   # 最多 4 轮(抗丢点击/字模误读), 每轮至多 60 下
+        if got <= 0:
+            break
+        sc.delay = bdelay
+        try:
+            for _ in range(min(got, 60)):
+                sc.click_base(bx, by, f"第{i + 1}槽 −")
+        finally:
+            sc.delay = keep
+        got = panel_count(sc, i, sc.grab())
+        if got is None:                  # 清着清着反而读不出了 → 别盲点, 交给收手判定
+            break
+    if got == 0:
+        log(f"第 {i + 1} 槽连点清零 (初读 {n} 件)")
+        return n
+    log(f"⚠ 第{i + 1}槽 连点后仍剩 {got} → 本行收手(不进阶)")
+    return -1
 
 
 PDIG_H = 32               # 面板数字字形归一化高度
@@ -330,54 +319,60 @@ def _tpl(name: str):
     return _TPL[name]
 
 
+# ---- S 徽标「团块几何」判据(2026-10-10 重写, 旧纯颜色法已废) ----
+# 旧法(橙心占比最大窗)在图面自带橙纹的装备上误报: 真机实测 图面纹样 0.556 > 阈值 0.55,
+# 整行绿装被当 S 跳过 → 0 次进阶。真徽标与图面纹样在**几何**上完全可分(实测标定):
+#   真 S(标定帧+合成贴标): bbox 18x21 / fill 0.88 / 中心在格顶上方 -4/-2px
+#   图面纹样(误报帧):      bbox 74x45, 70x40 / fill 0.20~0.21 / 中心 +12~+15px
+#   图面碎屑(噪声):        bbox 12x14 / fill 0.57 / 中心 +22px
+# 四条约束同时卡: 面积下限 / bbox 紧实上限 / 填充率 / 中心悬浮在格顶附近。
+S_CC_MIN = 150        # 徽标面积下限(真 331; 碎屑 95)
+S_BBOX_MAX = 32       # 徽标紧实: bbox 边长上限(真 18x21; 图面整片 74x45)
+S_FILL = 0.60         # 徽标是实心块(真 0.88; 图面 0.21 / 碎屑 0.57)
+S_CY_MAX = 10         # 徽标悬浮在格顶: 中心相对格顶 ≤+10px(真 -4/-2; 图面 +12 以上)
+
+
+def _orange_blobs(reg):
+    """区域里的橙色连通块 [(bbox(x,y,w,h), area, fill)] —— 先闭运算把 S 镂空愈合。"""
+    hsv = cv2.cvtColor(reg, cv2.COLOR_BGR2HSV)
+    hc, s_, v_ = (hsv[:, :, i].astype(int) for i in (0, 1, 2))
+    m = ((hc >= 8) & (hc <= 40) & (s_ >= 110) & (v_ >= 130)).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    n, _l, st, _c = cv2.connectedComponentsWithStats(m, 8)
+    out = []
+    for j in range(1, n):
+        a = int(st[j, 4])
+        if a < 40:                       # 预滤碎屑(正式门槛在 S_CC_MIN)
+            continue
+        bx, by, bw, bh = (int(v) for v in st[j, :4])
+        out.append(((bx, by, bw, bh), a, a / max(1, bw * bh)))
+    return out
+
+
 def tile_s(sc: kit.Screen, col: int, img=None) -> float:
-    """第 col 列材料格左上角有没有「橙色 S 徽标」→ 返回最大橙心占比(0~1)。
+    """第 col 列材料格左上角有没有「橙色 S 徽标」→ 徽标团块的填充率(0~1)。
 
     用户约定: 带 S 徽标的格子不能当材料。
-    坐标: 以格子左上角为基准, 徽标实际位置会高出格顶 ~20px 且逐页/逐行有十几像素浮动
-    (实测也正因此, 固定窗口 + 粗步长会把最优窗口跳过去, 真 S 只剩 0.42 < 阈值)。
-    所以: 橙色掩码只算一次 + 积分图 → 偏移按 1px 网格舋完整个 ±16px 搜索窗, 仍是毫秒级。
+    判据 = 橙色**团块几何**(见 S_CC_MIN 等四个常量的标定数据), 不再是颜色分数:
+    图面自带的橙纹是「大面积低填充、长在格框里」的, 与「小紧实、悬浮格顶」的
+    徽标在 bbox/fill/位置三个维度都有数倍差距, 任一条都能单独拦住旧法的误报。
     """
     img = sc.grab() if img is None else img
     if img is None or getattr(img, "size", 0) == 0:
         return 0.0
-    h, w = img.shape[:2]
-    x0, y0, _, _ = tile_rect(col)
-    size = max(26, round(44 * w / 845))
-    k = max(1, round(size * 0.25))             # 只取中心核(边距 = 1/4 边长, 与标定一致)
-    bx = round((x0 - 6) * w / 845)             # 徽标预期左上
-    by = round((y0 - 12) * h / 1521)
-    m = 16                                     # 搜索半径(px)
-    X0, Y0 = max(0, bx - m), max(0, by - m)
-    X1, Y1 = min(w, bx + m + size), min(h, by + m + size)
-    reg = img[Y0:Y1, X0:X1]
+    H, W = img.shape[:2]
+    x0, y0 = tile_rect(col)[:2]
+    ax, ay, aw, ah = _bot.ref_rect_to_client(x0 - 20, y0 - 45, 95, 80, W, H)
+    reg = img[max(0, ay):ay + ah, max(0, ax):ax + aw]
     if reg.size == 0:
         return 0.0
-    hsv = cv2.cvtColor(reg, cv2.COLOR_BGR2HSV)
-    hc, sc_, vc = (hsv[:, :, i].astype(int) for i in (0, 1, 2))
-    orange = ((hc >= 8) & (hc <= 40) & (sc_ >= 110) & (vc >= 130)).astype(np.int32)
-    # 积分图(自己用 cumsum 算: OpenCV 5 的 cv2.integral 不收这些 dtype) → 窗口橙像素数 O(1)
-    cc = np.cumsum(np.cumsum(orange.astype(np.int64), 0), 1)
-    ii = np.zeros((cc.shape[0] + 1, cc.shape[1] + 1), np.int64)
-    ii[1:, 1:] = cc
-    core = size - 2 * k
-    if core <= 0:
-        return 0.0
+    top = _bot.ref_to_client(x0, y0, W, H)[1] - max(0, ay)   # 格顶在区域内的 y
     best = 0.0
-    for dy in range(-m, m + 1):
-        y = by - Y0 + dy
-        if y < 0 or y + size > orange.shape[0]:
-            continue
-        for dx in range(-m, m + 1):
-            x = bx - X0 + dx
-            if x < 0 or x + size > orange.shape[1]:
-                continue
-            x1, y1 = x + k, y + k
-            x2, y2 = x1 + core, y1 + core
-            s_ = ii[y2, x2] - ii[y1, x2] - ii[y2, x1] + ii[y1, x1]
-            v = float(s_) / (core * core)
-            if v > best:
-                best = v
+    for (bx, by, bw, bh), area, fill in _orange_blobs(reg):
+        cy = by + bh / 2 - top                    # 中心相对格顶
+        if (area >= S_CC_MIN and bw <= S_BBOX_MAX and bh <= S_BBOX_MAX
+                and fill >= S_FILL and cy <= S_CY_MAX):
+            best = max(best, fill)
     return best
 
 
@@ -528,28 +523,28 @@ def _green_tiles(sc: kit.Screen, img) -> list[tuple[int, tuple[int, int, int, in
     return out
 
 
-def _badge_frac(box) -> float:
-    """图块里最大「橙金徽标占比」(与详情页 tile_s 同一套颜色判据, ±4px 微搜索)。"""
-    th, tw = box.shape[:2]
-    if th < 24 or tw < 24:
+def _badge_frac(img, bbox) -> float:
+    """列表行绿格左上角的 S 徽标检测 —— 与详情页 tile_s **同一套团块几何判据**。
+
+    旧法(头部裁剪里滑窗取最大橙占比)两处坏: ① 裁剪从绿格 bbox 顶开始, 而徽标
+    悬浮在 bbox 上沿之外(~20px) → 真徽标根本不在窗里, 真 S 行漏检 → 白跑详情页;
+    ② 图面橙纹照旧误报(2026-10-10 真机: 图面纹样 0.516 逼近阈值)。
+    新法: 裁剪区向上多取 28px 把悬浮带包进来, 再按 tile_s 的四条约束卡团块。
+    """
+    bx, by, bw, bh = bbox
+    H, W = img.shape[:2]
+    y0 = max(0, by - 28)
+    x0 = max(0, bx - 10)
+    reg = img[y0:min(H, by + bh // 2), x0:min(W, bx + bw // 2 + 10)]
+    if reg.size == 0:
         return 0.0
-    size = max(16, int(min(th, tw) * 0.48))
-    k = max(3, size // 4)
-    hsv = cv2.cvtColor(box, cv2.COLOR_BGR2HSV)
-    m = ((hsv[:, :, 0] >= 8) & (hsv[:, :, 0] <= 40) & (hsv[:, :, 1] >= 110)
-         & (hsv[:, :, 2] >= 130)).astype(np.float32)
-    acc = np.zeros((m.shape[0] + 1, m.shape[1] + 1), np.float32)
-    acc[1:, 1:] = m.cumsum(0).cumsum(1)
+    top = by - y0                            # 绿格 bbox 顶在区域内的 y(≈徽标悬浮基准)
     best = 0.0
-    for dy in range(0, min(9, max(1, th - size))):
-        for dx in range(0, min(9, max(1, tw - size))):
-            x1, y1 = dx + k, dy + k
-            x2, y2 = x1 + size - 2 * k, y1 + size - 2 * k
-            area = (x2 - x1) * (y2 - y1)
-            if area <= 0:
-                continue
-            s = float(acc[y2, x2] - acc[y1, x2] - acc[y2, x1] + acc[y1, x1]) / area
-            best = max(best, s)
+    for (cx, cy, cw, ch), area, fill in _orange_blobs(reg):
+        ccy = cy + ch / 2 - top
+        if (area >= S_CC_MIN and cw <= S_BBOX_MAX and ch <= S_BBOX_MAX
+                and fill >= S_FILL and ccy <= S_CY_MAX):
+            best = max(best, fill)
     return best
 
 
@@ -557,27 +552,46 @@ _DIGIT_K = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
 DIGIT1_CORR = 0.65        # 与「1」字模相关 ≥ 此值 ⇒ 数量 = 1 ⇒ 跳过该行
 
 
-def _digit_glyph(tile):
-    """格子里的数量数字字形(高度归一化到 14), 定位失败返回 None。
+def _digit_glyph(tile, y0f: float = 0.72, y1f: float = 0.98):
+    """数量带里的数字字形, 返回 (归一化字形, 带内bbox) 或 None。
 
-    ⚠ 三样缺一不可(都踩过):
+    ⚠ 带的取法就是**标定的一部分**: qa_digit1 字模是在「tile 72%~98% 高度带」里
+    裁的(数字顶部恰好被带首齐平裁切) —— 换任何"更合理"的 padding 都会与字模
+    失配(实测 0.95 → 0.29)。所以旧口径的带 A 必须原样复刻; 新美术(数字牌悬出
+    格底)用 y0f=0/y1f=1 的整带传入。
+    其余三样缺一不可(都踩过):
       1) 顶帽去数字板的缓慢渐变 → 否则整板被当字(bbox 被撑到 33~57px);
       2) 连通域高度 ≥ 8 → 否则板的倒角高光(2~3px 细亮线)混进来, 仍横跨全宽;
-      3) 只取板中央 18%~82% → 否则两端装饰高光混进来。
-    三样都做了, 定位跨帧一致: 数量 1 → 宽10/面积150, 数量 5 → 宽11/面积165。
+      3) 只取带中央 18%~82% → 否则两端装饰高光混进来;
+      4) 主簇(最大块出发按 x 邻接吸收) —— 带里混进杂纹时取并集会被撑宽。
     """
     th, tw = tile.shape[:2]
-    band = tile[int(th * 0.72):int(th * 0.98), int(tw * 0.18):int(tw * 0.82)]
+    band = tile[int(th * y0f):int(th * y1f), int(tw * 0.18):int(tw * 0.82)]
     if band.size == 0:
         return None
     g = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY)
     m = (cv2.morphologyEx(g, cv2.MORPH_TOPHAT, _DIGIT_K) > 20).astype(np.uint8)
     _, _, st, _ = cv2.connectedComponentsWithStats(m, 8)
-    bs = [(x, y, w, h) for x, y, w, h, a in st[1:] if h >= 8 and 2 <= w <= 26 and a >= 12]
+    bs = [(x, y, w, h, a) for x, y, w, h, a in st[1:] if h >= 8 and 2 <= w <= 26 and a >= 12]
     if not bs:
         return None
-    x0 = min(b[0] for b in bs); x1 = max(b[0] + b[2] for b in bs)
-    y0 = min(b[1] for b in bs); y1 = max(b[1] + b[3] for b in bs)
+    # 主簇: 从最大块出发, 按 x 邻接逐步吸收(数字可能断笔成多块)
+    bs.sort(key=lambda b: -b[4])
+    cluster = [bs[0]]
+    rest = bs[1:]
+    changed = True
+    while changed and rest:
+        changed = False
+        cx0 = min(b[0] for b in cluster); cx1 = max(b[0] + b[2] for b in cluster)
+        keep = []
+        for b in rest:
+            if b[0] < cx1 + 6 and b[0] + b[2] > cx0 - 6:
+                cluster.append(b); changed = True
+            else:
+                keep.append(b)
+        rest = keep
+    x0 = min(b[0] for b in cluster); x1 = max(b[0] + b[2] for b in cluster)
+    y0 = min(b[1] for b in cluster); y1 = max(b[1] + b[3] for b in cluster)
     p = 3
     crop = g[max(0, y0 - p):min(g.shape[0], y1 + p), max(0, x0 - p):min(g.shape[1], x1 + p)]
     if crop.size == 0:
@@ -586,7 +600,9 @@ def _digit_glyph(tile):
     c = cv2.resize(crop, (max(1, int(round(14 * w / max(1, h)))), 14),
                    interpolation=cv2.INTER_AREA).astype(np.float32)
     c -= c.mean(); s = float(c.std())
-    return (c / s) if s > 1e-6 else None
+    if s <= 1e-6:
+        return None
+    return (c / s), (x0, y0, x1 - x0, y1 - y0)
 
 
 _G1: list = []
@@ -605,25 +621,57 @@ def _digit1_tpl():
     return _G1[0]
 
 
-def _count_ge2(tile) -> bool:
-    """该格数量是否 ≥2 —— 用「与「1」字模的相关」判「是不是只有 1 件」。
-
-    真机真帧实测: 「1」→ 1.000 / 0.872; 「5」→ 0.384 (2.3 倍余量, 阀值 0.65)。
-    ⚠ 读不出来(定位失败/字模缺失)**放行**(fail-open): 漏掉一次能进阶的行,
-      比多跑一趟详情更亏 —— 而详情那趟现在也便宜了(减到灰先读数, <2 立即退)。
-    """
+def _corr1(g) -> float:
+    """字形与「1」字模的相关(0~1)。真机真帧实测: 「1」→ 1.000/0.872, 「5」→ 0.384。"""
     tpl = _digit1_tpl()
-    if tpl is None:
-        return True
-    g = _digit_glyph(tile)
-    if g is None:
-        return True
+    if tpl is None or g is None:
+        return 0.0
     W = max(tpl.shape[1], g.shape[1])
     A = np.zeros((14, W), np.float32); B = np.zeros((14, W), np.float32)
     A[:, :tpl.shape[1]] = tpl; B[:, :g.shape[1]] = g
     d = float(A.std() * B.std())
-    c = float((A * B).mean() / d) if d > 1e-6 else 0.0
-    return c < DIGIT1_CORR
+    return float((A * B).mean() / d) if d > 1e-6 else 0.0
+
+
+def _band_is_one(tile, *, y0f: float = 0.72, y1f: float = 0.98) -> bool | None:
+    """数量带里读出的数字是不是「1」: True=是 / False=不是 / None=读不出。
+
+    ⚠ qa_digit1 字模是「数字顶与带顶齐平」的裁剪标定 —— 带顶没跟字形顶对齐时
+    相关会塌(实测同一个「1」0.95 ↔ 0.52)。所以读出字形但相关不过时, 先**按
+    字形顶重裁一条**再读一遍, 两遍都不过才算「不是 1」。
+    牌底作证: 数字必须坐在绿色数量牌上(字形周边绿占比 ≥0.30) —— 带里扫进的
+    图面杂纹即使相关过线也没有牌底, 宁可读不出(fail-open 放行)也不误拦能进阶的行。
+    """
+    realigned = False
+    got = _digit_glyph(tile, y0f, y1f)
+    if got is None:
+        return None
+    g, (gx, gy, gw, gh) = got
+    if _corr1(g) < DIGIT1_CORR:
+        th = tile.shape[0]
+        y_abs = int(th * y0f) + gy             # 字形顶在 tile 里的绝对行
+        tile = tile[max(0, y_abs - 1):min(th, y_abs + gh + 3), :]
+        got = _digit_glyph(tile, 0.0, 1.0)
+        if got is None:
+            return None
+        g, (gx, gy, gw, gh) = got
+        realigned = True
+    if _corr1(g) < DIGIT1_CORR:
+        return False
+    bx0, bx1 = int(tile.shape[1] * 0.18), int(tile.shape[1] * 0.82)
+    if realigned:
+        by0f, by1f = 0, tile.shape[0]          # 重裁后的 tile 本身就是带
+    else:
+        by0f, by1f = int(tile.shape[0] * y0f), int(tile.shape[0] * y1f)
+    band = tile[by0f:by1f, bx0:bx1]
+    hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
+    h_, s_, v_ = (hsv[:, :, i].astype(int) for i in (0, 1, 2))
+    gm = ((h_ >= 35) & (h_ <= 85) & (s_ >= 60) & (v_ >= 60))
+    x0 = max(0, gx - 8); x1 = min(gm.shape[1], gx + gw + 8)
+    y0 = max(0, gy - 6); y1 = min(gm.shape[0], gy + gh + 6)
+    if gm[y0:y1, x0:x1].mean() < 0.30:
+        return None                       # 没有牌底作证 → 不敢说
+    return True
 
 
 LIST_COUNT_CHECK = True   # 列表页「数量≥2」预筛: 靠**确定性定位 + 字形相关**判「是不是只有 1 件」。
@@ -642,17 +690,24 @@ def usable_rows(sc: kit.Screen, img) -> list[int]:
     """
     res: list[int] = []
     for cy, (bx, by, bw, bh) in _green_tiles(sc, img):
-        tile = img[by:by + bh, bx:bx + bw]
-        if tile.size == 0:
-            continue
-        head = tile[:max(24, int(bh * 0.55)), :max(24, int(bw * 0.55))]   # 左上角
-        s = _badge_frac(head)
+        s = _badge_frac(img, (bx, by, bw, bh))
         if s >= S_TH:
             log(f"列表页 y={cy}: 绿材料格带 S 徽标({s:.2f}) → 不进详情, 跳过")
             continue
-        if LIST_COUNT_CHECK and not _count_ge2(tile):
-            log(f"列表页 y={cy}: 绿材料格数量 <2 → 不进详情, 跳过")
-            continue
+        if LIST_COUNT_CHECK:
+            # 数量「1 件」两段式判读(数字牌相对绿格 bbox 底的位置随列表美术漂移, 实测差 30px):
+            #   ① 旧口径: 整格 bbox + 内部 72%~98% 高度带(与 qa_digit1 字模的标定几何一致);
+            #   ② 新美术: 数字牌悬出 bbox 底 → 底下方 22px 整带(y 分幅关掉)。
+            #   两段都要求「数字坐在绿牌上」: 带里扫进的图面杂纹没有牌底作证 → 读不出
+            #   (fail-open 放行), 不会把 5 件的行误判成 1 件。
+            tile = img[by:by + bh, bx:bx + bw]
+            one = _band_is_one(tile)
+            if one is None:
+                one = _band_is_one(img[max(0, by + bh - 6):min(img.shape[0], by + bh + 16),
+                                       bx:bx + bw], y0f=0.0, y1f=1.0)
+            if one is True:
+                log(f"列表页 y={cy}: 绿材料格数量 1 件(<2) → 不进详情, 跳过")
+                continue
         res.append(cy)
     return res
 
@@ -661,13 +716,23 @@ def pick_row(sc: kit.Screen, visited: list[np.ndarray]) -> int | None:
     """当前页签里找到「有绿装且没访问过」的行 y; 视口内没有就上滑再找。
 
     只在**列表页就达标**(非 S + 数量≥2)的行才会被选中 → 不白点详情页。
+    到底检测: 上滑后绿格位置纹丝不动(±8px) → 列表已到底, 立即收工。
+    实测(2026-10-10): 列表到底后继续滑满 SCROLL_MAX=10 次, 每轮重进列表白耗 ~27s。
+    (只在「有绿格可见」时判到底 —— 连续两屏都没绿格可能是绿装稀疏, 继续滑)
     """
+    prev_ys: list[int] | None = None
     for s in range(SCROLL_MAX + 1):
         img = sc.grab()
+        ys = [cy for cy, _ in _green_tiles(sc, img)]
         for y in usable_rows(sc, img):
             if not any(same_row(row_sig(sc, y), v) for v in visited):
                 return y
         if s < SCROLL_MAX:
+            if (ys and prev_ys is not None and len(ys) == len(prev_ys)
+                    and all(abs(a - b) <= 8 for a, b in zip(ys, prev_ys))):
+                log(f"上滑后绿格位置未变 {ys} → 列表已到底, 提前收工")
+                return None
+            prev_ys = ys
             log(f"视口内没有可用的绿装行 → 上滑第 {s + 1} 次")
             _scroll(sc)
     return None

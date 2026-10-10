@@ -58,6 +58,8 @@ QSEQ = "_ts_qa_qseq"                # 清槽序列(喂数量面板状态)
 NOGREEN = "_ts_qa_nogreen.png"      # 绿装格边框改灰(模拟该行榨干)
 LIVES = "_qa_s16_liveS.png"         # 现场详情真帧(第1格带真 S 徽标) — 徽标补丁来源
 SDET = "_qa_sdet_green_s.png"       # 合成: 绿列格子左上贴真 S 徽标(用于验「S 格剔除」)
+ART = "_qa_s18_artframe.png"        # 真帧(812x1518, 2026-10-10 真机): 第2列绿装图面自带
+                                    # 大片橙纹 → 旧颜色判据 0.556 误判 S 整行跳过(回归锁)
 G1 = "_ts_qa_g1"                    # 绿槽只有 1 件的清槽序列
 G2 = "_ts_qa_ghost"                 # 「假数量」序列: 清槽报 5 件, 真持有只有 1 件
 
@@ -205,6 +207,10 @@ def ensure_fixtures() -> bool:
         # 再补一帧: 「绿槽已 +1 之后」的态(该槽 ＋ 上限=1 → ＋ 变灰)。
         # ⚠ 文件名要排在系列末尾: 下划线(0x5F) > 数字(0x30) → `..._sel` 在 `...015` 之后。
         _slot_states(QTY, f"{G2}_sel.png", [2, 2, 3, 2], [0, 0, 1, 0], plus_max={2: 1})
+    # 回归帧: 今晚真机误报帧拷贝成稳定夹具名(源是探针留证, 非致命, 缺则该场景 SKIP)
+    if not (SHOTS_DIR / ART).is_file() and (SHOTS_DIR / "_qaprobe_probe_detail.png").is_file():
+        cv2.imwrite(str(SHOTS_DIR / ART), cv2.imread(str(SHOTS_DIR / "_qaprobe_probe_detail.png")))
+        print(f"[生成] {ART}（拷自今晚探针帧）")
     print("[生成] 合成夹具: 清槽序列(喂 [2,2,3,2] 与 [2,2,1,2], 数字牌跟着画) + 无绿装帧")
     return True
 
@@ -331,6 +337,33 @@ def case_s_filter(rp):
                   f"素帧: S分={s_plain:.3f} 绿列={cols_plain}(期望 [2])")
 
 
+def case_s_true_frame(rp):
+    """⑨a 真 S 徽标(标定帧原帧, 非合成): 第 1 格必须被判 S。"""
+    sc = _sc(rp)
+    img = sc.grab()
+    s = qa.tile_s(sc, 0, img)
+    cols = qa.green_cols(sc, img)
+    print(f"  标定帧第1格 S分={s:.3f} (需≥{qa.S_TH}) → 绿列(剔除S后)={cols}")
+    return s >= qa.S_TH and 0 not in cols, f"真S帧: S分={s:.3f} 绿列={cols}"
+
+
+def case_art_not_s(rp):
+    """⑨b 图面橙纹不是 S(2026-10-10 真机回归): 第 2 列绿装必须放行, 第 3 列不算 S。
+
+    旧颜色判据在 这帧上: 第2列 0.556(>0.55 误判 S)、第3列 0.438 —— 整行被跳过,
+    真机表现 = 0 次进阶提前收工。新团块判据: 图面橙纹 bbox 74x45/fill 0.21/中心
+    +12px, 四条约束全部出局。
+    """
+    sc = _sc(rp)
+    img = sc.grab()
+    s2 = qa.tile_s(sc, 1, img)
+    s3 = qa.tile_s(sc, 2, img)
+    cols = qa.green_cols(sc, img)
+    print(f"  第2列 S分={s2:.3f}(需<{qa.S_TH}) 第3列 S分={s3:.3f}(需<{qa.S_TH}) → 绿列={cols}(期望 [1])")
+    return s2 < qa.S_TH and s3 < qa.S_TH and cols == [1], \
+        f"图面帧: S分={s2:.3f}/{s3:.3f} 绿列={cols}(期望 [1])"
+
+
 def case_dedupe(rp):
     """⑦ 去重终止: 榨不干的行会一直在列表里 → 第二次必须认出来并收手(防死循环）。"""
     n = qa.run_tab(_sc(rp), "plane", "战机", cap=6)
@@ -398,6 +431,8 @@ def main() -> int:
         ("假数量(报≥2真持有1) → 绝不点进阶", f["ghost"], case_ghost_count),
         ("去重终止(榨不干的行不重访)", f["dedupe"], case_dedupe),
         ("S 徽标剔除(S 格不当材料, 非 S 格照旧)", [SDET, AFTER_OK], case_s_filter),
+        ("真 S 徽标(标定帧原帧)", [LIVES], case_s_true_frame),
+        ("图面橙纹不是 S(2026-10-10 真机回归)", [ART], case_art_not_s),
         ("dry 零点击零写盘", [DETAIL], case_dry),
         ("并发锁互斥", [DETAIL], case_lock),
     ]
