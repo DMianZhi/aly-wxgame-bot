@@ -23,6 +23,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import cv2  # noqa: F401  (_selected_tab_center 的灰度/阈值用)
+import numpy as np  # noqa: F401  (同上, 行相对亮度)
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wb import bot as _bot  # noqa: E402
@@ -36,8 +39,14 @@ MAT_ICONS = [_bot.client_to_ref(x, 345, 812, 1518) for x in (156, 299, 440, 582)
 TH = 0.88            # 通用
 SWEEP_TH = 0.93      # 「扫荡」按钮（橙色，只有可用/未耗尽的行才会命中）
 TOGGLE_TH = 0.93     # 切换器 label
-TAB_TH = 0.96        # 4星材料「已选中」态（未选中时 3星 会误匹配到 0.942，故阈值须 ≥0.95）
+TAB_TH = 0.96        # 4星材料「已选中」态（仅作旧夹具回退; 2026-10-10 起 3星选中态也会
+                     # 随渲染漂移到 ≥0.96 假阳性 → 主判据改为几何, 见 select_tab4）
 TABBAR_TH = 0.90     # 整条页签栏（任意选中态都该命中）
+# 4星页签的**槽位中心**(2026-10-10 在 812x1518 真帧实测): 三个页签 3星/4星/5星 的槽位
+# 中心固定(≈165/430/660), 选中的页签只是在原槽位**变宽**(实测 4星选中时展开为 290..536,
+# 中心 ≈413 仍在槽位上) —— 点槽位幂等(已选中再点=无操作), 几何判定免疫美术漂移。
+TAB4_SLOT = _bot.client_to_ref(430, 325, 812, 1518)
+TAB_SLOT_TOL = 70    # 选中块中心与 4星槽位中心的判定容差(px, 客户区)
 DOUBLE_TH = 0.93     # 「双倍奖励」按钮
 DONE_TH = 0.90       # 「扫荡完成」弹层
 AD_TH = 0.90         # 广告链路
@@ -105,20 +114,78 @@ def open_panel(sc: kit.Screen) -> bool:
     return sc.find("sweep_close", 0.93) is not None
 
 
+def _selected_tab_center(sc: kit.Screen):
+    """页签条上「选中」的那个宽亮块中心(客户区坐标); 找不到返回 None。
+
+    选中页签 = 条带里唯一的**半透明白 overlay**(实测比同行背景亮 +40~90, 绝对灰度
+    只有 115~180 且向下渐变 —— 绝对阈值会漏, 必须用**行相对亮度**)。
+    条带 y 用 sweep_tab4 模板的**原始命中**(0 阈值, 它总会命中某个页签文字)锚定,
+    band 向上偏(亮顶边在文字上方 ~30px), 不写死 —— 面板布局漂移时跟着走。
+    """
+    anchor = sc.find("sweep_tab4", 0.0)
+    if anchor is None:
+        return None
+    img = sc.grab()
+    y = int(anchor[1])
+    x0 = max(20, int(sc.w * 0.02))
+    x1 = min(sc.w - 20, int(sc.w * 0.93))
+    band = img[max(0, y - 30):min(img.shape[0], y + 8), x0:x1]
+    if band.size == 0:
+        return None
+    g = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY).astype(np.int16)
+    rel = g - np.median(g, axis=1, keepdims=True)     # 每像素相对本行背景的亮度
+    col = (rel > 25).mean(axis=0)                     # 显著亮于背景的行占比
+    solid = col >= 0.6
+    runs: list[tuple[int, int]] = []                  # 实心段
+    run_start = None
+    for i, v in enumerate(list(solid) + [False]):
+        if v and run_start is None:
+            run_start = i
+        elif not v and run_start is not None:
+            runs.append((run_start, i))
+            run_start = None
+    if not runs:
+        return None
+    # 合并小断口(≤50px): 选中块上的**文字笔触**会把连续亮区切成几段(实测 3 段 95/41/87),
+    # 页签之间的真间隙 ≥96px —— 按断口宽度区分两者
+    merged = [list(runs[0])]
+    for a, b in runs[1:]:
+        if a - merged[-1][1] <= 50:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    best = max(merged, key=lambda r: r[1] - r[0])
+    if best[1] - best[0] < 120:                       # 选中态实测宽 ~246px; 太窄的不是
+        return None
+    return (x0 + (best[0] + best[1]) // 2, y)
+
+
 def select_tab4(sc: kit.Screen) -> bool:
-    """确保 4星材料 页签处于选中态。"""
-    if sc.find("sweep_tab4", TAB_TH) is not None:
+    """确保 4星材料 页签处于选中态。
+
+    2026-10-10 重写: 旧法只看 sweep_tab4(选中态)≥0.96, 但 3星选中态与 4星选中态
+    只差一个数字, 分数随渲染漂移(3星选中态一度 ≥0.96 假阳性 → 整轮扫了 3星)。
+    新判据以**几何**为准: 选中页签 = 条带上唯一的宽实心亮块, 其中心必须落在
+    4星槽位(TAB4_SLOT)上; 不是就点槽位(幂等: 已选中再点=无操作), 点完复查。
+    sweep_tab4 模板命中只作「几何失效时」的旧夹具回退。
+    """
+    slot_x, _slot_y = _bot.ref_to_client(*TAB4_SLOT, sc.w, sc.h)
+    geo = _selected_tab_center(sc)
+    if geo is not None:
+        if abs(geo[0] - slot_x) <= TAB_SLOT_TOL:
+            log("4星材料 已是选中态(几何)")
+            return True
+    elif sc.find("sweep_tab4", TAB_TH) is not None:
         log("4星材料 已是选中态")
         return True
-    bar = sc.find("sweep_tabbar", TABBAR_TH)
-    if bar is None:
-        log("未找到材料页签栏")
-        return False
-    # 整条页签栏中心 → 4星材料（中间那个）中心 = +20px
-    sc.click_at(bar[0] + 20, bar[1], "4星材料")
+    # 未选中(或几何说选中的是别的星) → 点 4星 槽位(点已选中的页签=无操作, 幂等)
+    sc.click_at(slot_x, _bot.ref_to_client(*TAB4_SLOT, sc.w, sc.h)[1], "4星材料")
     kit.nap(2.0)
-    ok = sc.find("sweep_tab4", TAB_TH) is not None
-    log(f"4星材料 选中 → {ok}")
+    geo = _selected_tab_center(sc)
+    ok = geo is not None and abs(geo[0] - slot_x) <= TAB_SLOT_TOL
+    if not ok:
+        ok = geo is None and sc.find("sweep_tab4", TAB_TH) is not None
+    log(f"4星材料 选中 → {ok} (选中块中心 {geo})")
     return ok
 
 

@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from wb import kit, selftest_kit as st  # noqa: E402
+from wb import bot as _bot, kit, selftest_kit as st  # noqa: E402
 from wb.cfg import SHOTS_DIR, TEMPLATE_PATH  # noqa: E402
 from tools.cases import sweep_stage as sw  # noqa: E402
 
@@ -170,20 +170,31 @@ def case_tab4_selected(rp):
 
 
 def case_tab4_unselected(rp):
-    """③b 4星页签未选中 → 点「页签栏中心+20px」后再确认（未选中态无真帧，见文件头缺口说明）。"""
+    """③b 4星页签未选中 → 几何判「选中块不在 4星槽位」→ 点槽位 → 复查通过。
+
+    2026-10-10 起页签选择改为「选中宽亮块中心 == 4星槽位」几何判定(旧 tabbar+20px
+    随美术改版失效; 3星选中态还会假阳性 tab4 模板 ≥0.96, 真机扫错一整轮 3星)。
+    桩: 首次几何返回 3星槽位位置(=未选中 4星) → 应点 4星槽位 → 复查(真几何, 夹具
+    本身是 4星选中态)通过。
+    """
     sc = _sc()
-    real_find, first = sc.find, {"done": False}
+    real_geo, first = sw._selected_tab_center, {"done": False}
 
-    def fake_find(name, th=None):
-        if name == "sweep_tab4" and th == sw.TAB_TH and not first["done"]:
-            first["done"] = True              # 桩: 首次检查「未选中」
-            return None
-        return real_find(name, th)
+    def fake_geo(s):
+        if not first["done"]:
+            first["done"] = True
+            return (100, 140)                 # 桩: 选中块在 3星槽位 → 4星未选中
+        return real_geo(s)
 
-    sc.find = fake_find
-    ok = sw.select_tab4(sc)
-    clicks_ok = st.check_clicks("页签", rp.real_clicks, [(BR + 20, BH)])
-    return ok and clicks_ok, f"通过={ok} 点击={rp.real_clicks}(期望 页签栏中心+20)"
+    sw._selected_tab_center = fake_geo
+    try:
+        ok = sw.select_tab4(sc)
+    finally:
+        sw._selected_tab_center = real_geo
+    h, w = rp.imgs[min(rp.idx, len(rp.imgs) - 1)].shape[:2]
+    exp = _bot.ref_to_client(*sw.TAB4_SLOT, w, h)
+    clicks_ok = st.check_clicks("页签", rp.real_clicks, [exp])
+    return ok and clicks_ok, f"通过={ok} 点击={rp.real_clicks}(期望 4星槽位 {exp})"
 
 
 def case_material_least(rp):
