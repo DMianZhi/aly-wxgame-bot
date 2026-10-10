@@ -253,9 +253,19 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
         log("未能进入十年集结页")
         return False
     if state(sc) == UNKNOWN:
-        log("当前是未知页面 → 中止")
-        sc.shot("unknown")
-        return False
+        # 起点被上一个用例留在半路(如寻宝 hub: kit.goto_home 旧版只认 ral_back 回不去)
+        # → 先试「回首页」直达键, 真能回首页就继续; 仍未知才中止
+        nh = sc.find(kit.HOME_NAV, 0.90)
+        if nh is not None:
+            sc.click(nh, "未知页 → 点「回首页」直达键")
+            kit.nap(1.5)
+        if state(sc) == UNKNOWN:
+            log("当前是未知页面 → 中止")
+            sc.shot("unknown")
+            return False
+        if state(sc) == HOME and not enter_rally(sc):
+            log("未能进入十年集结页")
+            return False
 
     chest_ok = do_chest(sc)
     if chest_ok and not no_wish:

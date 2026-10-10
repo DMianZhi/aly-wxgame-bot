@@ -176,6 +176,8 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
 
 if __name__ == "__main__":
     raise SystemExit(kit.run_case(
-        "free_explore", f"星际探索（快速探索，默认 3 轮）", run,
-        plan=PLAN, prefix="explore_", lock_ttl=600, th=TH, default_max=3,
+        "free_explore", f"星际探索（快速探索，循环到次数耗尽）", run,
+        # 上限 6 只是防呆: 「次数耗尽」检测(弹窗无领取键/入口键全无)会提前停 ——
+    # 2026-10-10 用户抓到: 默认 3 轮打满就收工, 其实还剩 1 次没领
+    plan=PLAN, prefix="explore_", lock_ttl=600, th=TH, default_max=6,
     ))

@@ -37,7 +37,8 @@ def goto_mall(sc: kit.Screen) -> bool:
     """确保在商城页(判据: card4 在场)；不在就从首页点商城进去。"""
     if sc.wait("mall_card4", 1.0):
         return True
-    shop = sc.find("shop")
+    # 等 5s 而不是一枪定成败: 上一个用例可能刚收尾(弹窗淡出/动画未完), 首页要缓一拍
+    shop = sc.wait("shop", 5)
     if shop is None:
         log("找不到商城入口，可能不在首页")
         return False
