@@ -22,6 +22,46 @@ uv run python main.py check      # 环境自检（窗口/截屏/模板/配置）
 | `uv run python main.py check` | 环境自检（窗口/截屏/模板/配置） |
 | `uv run python main.py snap [名]` | 截当前游戏画面到 shots/ |
 | `uv run python tools/maint/docs.py` | 按 `wb/registry.py` 重写本文档的用例清单（`--check` 只校验是否同步） |
+| `uv run python -m wbtui` | **交互外壳**：列用例 → 选编号 → 跑 → 实时日志 + 结果面板（默认 dry） |
+
+## 交互外壳：wbtui
+
+不想记用例名和开关时，用 TUI：
+
+```bash
+uv run python -m wbtui
+```
+
+列出每日用例（用途/每日额度/开关，读 `wb/registry.py` 单一事实源）→ 输入编号 → 默认走 **dry 演练**（零点击），
+真跑要再确认一次（会真实消耗每日次数）→ stderr 日志实时滚动 → 结束出结果面板（成败/code/耗时/关键节点/留证截图）。
+`q` 退出、`r` 重跑上一个、`shots` 打开截图目录；`Ctrl+C` 停当前用例。
+
+实现上**不 import 用例**，而是以子进程跑下面那条 `--json` 命令 —— 与 AI 走同一条路径，人机不会漂移。
+
+## 给 AI / 脚本调用：--json
+
+每个用例都支持 `--json`：**stdout 只输出一行 JSON**（人类日志全部走 stderr），字段冻结、只增不改：
+
+```bash
+uv run python tools/cases/void_rift.py --json            # 读 stdout 即可
+uv run python tools/cases/void_rift.py --json --dry      # 零副作用演练也支持
+uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢掉日志
+```
+
+```json
+{"case": "void_rift", "title": "虚空裂隙-秘钥工坊（免费领取）", "ok": true, "code": 0,
+ "dry": false, "dur": 41.2, "shots": ["vk_nothing.png"],
+ "steps": [{"t": "免费不在槽位(已领/冷却/只有付费钮) → 留证收工", "ok": true}], "error": null}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `ok` / `code` | 是否达成 / 退出码（0 成功 · 1 未达成 · 2 环境问题 · 3 已有实例在跑 · 4 超时） |
+| `dry` | 是否演练（零点击） |
+| `dur` | 耗时（秒） |
+| `shots` | 留证截图文件名（在 `shots/` 下） |
+| `steps` | 关键语义节点（`⚠`/`✗` 开头 → `ok=false`）；失败路径同样有 JSON |
+| `error` | 异常/超时/无窗口等原因，正常为 `null` |
 
 <!-- BEGIN:CASES -->
 ## 用例清单
@@ -74,7 +114,7 @@ uv run python main.py check      # 环境自检（窗口/截屏/模板/配置）
 | 12 | 十年集结裁剪 | `uv run python tools/crop/crop_rally.py` | - | `-` | 首页活动卡 + 集结页 + 弹幕面板 |
 | 13 | 逐星补给裁剪 | `uv run python tools/crop/crop_star.py` | - | `-` | 长阶页入口/×5 装置(**必须裁可领态**: 已领后装置整个消失) + 补给面板领5次键/X；两源图分两次 run_crop，另做跨页核验(4 模板在闯关页/首页须 ≤0.86) |
 
-### 测试/自检（`tools/selftest/`，20 个）
+### 测试/自检（`tools/selftest/`，22 个）
 
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
@@ -97,7 +137,9 @@ uv run python main.py check      # 环境自检（窗口/截屏/模板/配置）
 | 17 | 活跃度奖励离线自检 | `uv run python tools/selftest/claim_activity_selftest.py` | - | `--dry` | 4 用例（2 张 812x1518 真帧）：入口定位(act_entry 187,225) ＋一键领取定位(act_claim 665,1311) ＋dry ＋锁 |
 | 18 | 奖励领取离线自检 | `uv run python tools/selftest/claim_reward_selftest.py` | - | `--dry` | 6 用例（3 张 812x1518 真帧：首页/奖励面板6行全橙/领后全灰）：入口定位 ＋可领检测(find_all=6 行, 首行 700,386) ＋领后不可再命中 ＋无可领路径(留证收工不算失败) ＋dry ＋锁 |
 | 19 | 陨石陷阱闪击离线自检 | `uv run python tools/selftest/meteor_trap_selftest.py` | - | `--dry` | 6 用例（2 张 812x1518 真帧：活动关卡页全页 + 闪击对话框[只开未确认零消耗拍的]）：判层(对话框先于活动页) ＋闪击键锚点落点(564,588) ＋极难页签**预测点点击**(卡1页签默认非选中态, 共享选中模板仅 0.867) ＋跨卡不串台(vs 卡2/卡3 ≤0.14) ＋dry ＋锁 |
-| 20 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
+| 20 | --json 契约离线自检 | `uv run python tools/selftest/json_contract_selftest.py` | - | `--dry` | 5 用例（真起子进程 + 分离两条管道，唯一能测到「stdout 干净」的办法）：--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) ＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) ＋人类模式 stdout **完全为空**(日志已全让给 stderr) |
+| 21 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 5 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 22 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) |
+| 22 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
 
 ### 维护工具（`tools/maint/`，7 个）
 
@@ -392,16 +434,17 @@ y' = 77 + (y - 77) * s
 
 ```
 main.py            入口：check / snap（每日任务都在 tools/ 下独立运行）
+wbtui/             交互外壳：rich 菜单式 TUI（uv run python -m wbtui）
 config.toml        阈值、拟人点击参数、窗口裁边
 wb/cfg.py          配置加载（路径/阈值/点击参数的唯一来源）
 wb/bot.py          窗口定位、截屏、模板匹配、拟人点击
-wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁 / 广告流 / 回首页 / 看门狗）
+wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁 / 广告流 / 回首页 / 看门狗）；--json 结构化结果契约（stdout 一行 JSON，日志走 stderr）
 wb/registry.py     用例注册表（清单单一事实源：smoke 校验与 README 清单都读它）
 wb/selftest_kit.py 离线回放脚手架（实测帧 + 点击驱动状态机，零消耗验证分支）
 wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）
 tools/cases/       22 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, boss_mode, void_rift, claim_activity, claim_reward, meteor_trap, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, guild_boss, quick_advance, friend_stamina, star_supply, endless_world
 tools/crop/        13 个模板裁剪工具: crop_quickadv, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
-tools/selftest/    20 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, free_stamina_selftest, free_rally_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, smoke
+tools/selftest/    22 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, free_stamina_selftest, free_rally_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, smoke
 tools/maint/       7 个维护工具: live_check, battle_watch, close_popup, clear_bag, docs, build_digits, build_bscore_digits
 templates/         按钮模板图（220 张，由 crop_* 用例与运行期裁剪产出）
 shots/             截图：snap_* 校准源、*_selftest 判层夹具、montage 预览、坐标 CSV
