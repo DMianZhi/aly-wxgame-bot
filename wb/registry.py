@@ -7,7 +7,7 @@
 分组（tools/ 下的四个子目录）
     daily     22 个每日用例   tools/cases/     —— 一个用例一个文件，失败不互相影响
     crop      13 个裁剪工具   tools/crop/      —— 改坐标/加模板后重跑即可整页重裁
-    selftest  21 个测试       tools/selftest/  —— 20 份离线回放自检 + 冒烟
+    selftest  22 个测试       tools/selftest/  —— 21 份离线回放自检 + 冒烟
     maint      7 个维护工具   tools/maint/     —— 运行期辅助/体检/文档生成
 
 字段
@@ -269,6 +269,11 @@ SELFTESTS = [
             "--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) "
             "＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) "
             "＋人类模式 stdout **完全为空**(日志已全让给 stderr)"),
+    _e("wbtui_selftest", "wbtui 外壳离线自检", SELFTEST, kit=True,
+       note="5 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）："
+            "用例表 22 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 "
+            "＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr "
+            "日志＋解析结果 dict＋退出码)"),
     _e("smoke", "冒烟测试", SELFTEST, flags="-",
        note="配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性"),
 ]
