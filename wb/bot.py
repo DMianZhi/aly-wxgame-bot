@@ -22,8 +22,8 @@ except Exception:
         pass
 
 pyautogui.FAILSAFE = True   # 紧急停止：把鼠标甩到屏幕左上角 (0,0)
-pyautogui.MINIMUM_DURATION = 0.2
-pyautogui.MINIMUM_SLEEP = 0.05
+pyautogui.MINIMUM_DURATION = 0.08
+pyautogui.MINIMUM_SLEEP = 0.03
 
 
 # --------------------------------------------------------------- 窗口与截屏
@@ -456,13 +456,17 @@ def drag_xy(x1: int, y1: int, x2: int, y2: int, rect: WinRect, dry_run: bool = F
 
 def click_xy(cx: int, cy: int, jitter: int, delay: tuple[float, float],
              rect: WinRect, dry_run: bool) -> None:
-    """拟人单击：随机偏移 + 随机时长移动 + 随机停顿。坐标含窗口修正。"""
+    """拟人单击：随机偏移 + 随机时长移动 + 随机停顿。坐标含窗口修正。
+
+    2026-10-10 用户两轮要求加快, 现为「真人快速点击」风格: 移动 0.08~0.16s、
+    点前停顿 0.02~0.05s —— 随机区间保留(防「过于规律」的风控), 只压时长。
+    """
     _ensure_foreground(rect)
     jx = cx + rect.x + random.randint(-jitter, jitter)
     jy = cy + rect.y + random.randint(-jitter, jitter)
     if dry_run:
         return
-    pyautogui.moveTo(jx, jy, duration=random.uniform(0.25, 0.55))
-    time.sleep(random.uniform(0.08, 0.2))
+    pyautogui.moveTo(jx, jy, duration=random.uniform(0.08, 0.16))
+    time.sleep(random.uniform(0.02, 0.05))
     pyautogui.click()
     time.sleep(random.uniform(*delay))
