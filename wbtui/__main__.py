@@ -51,41 +51,61 @@ def _menu_keyloop(console: Console, entries) -> list | None:
     """按键模式菜单: ↑↓ 移动 / 空格勾选 / a 全选 / Enter 执行勾选 / A 一键全部。
 
     返回勾选的 Entry 列表(按列表顺序)；q/Esc 返回 None(退出)；Ctrl+C 退出。
+
+    渲染用 rich Live(auto_refresh=False) 原位重写 —— 2026-10-11 修闪烁:
+    旧版每帧 console.clear() 全量重画, 清屏瞬间黑闪一下; Live 用 ANSI 把光标
+    移回帧首重写同一块区域, 不清屏, 且只在按键后才 update(refresh), 阻塞等键时零重绘。
     """
+    from rich.console import Group
+
     cursor = 0
     selected: set[int] = set()
-    while True:
-        console.clear()
-        console.print(view.header_panel(len(entries)))
-        console.print(view.cases_table(entries, selected=selected, cursor=cursor))
-        console.print(view.hints())
 
-        ch = msvcrt.getch()
-        if ch in (b"\x00", b"\xe0"):            # 功能键 → 读第二个扫描码
+    def render():
+        return Group(
+            view.header_panel(len(entries)),
+            view.cases_table(entries, selected=selected, cursor=cursor),
+            view.hints(),
+        )
+
+    with Live(render(), console=console, auto_refresh=False,
+              refresh_per_second=4, transient=False) as live:
+        while True:
             ch = msvcrt.getch()
-            if ch == KEY_UP:
-                cursor = (cursor - 1) % len(entries)
-            elif ch == KEY_DOWN:
-                cursor = (cursor + 1) % len(entries)
-        elif ch == KEY_CTRL_C:
-            return None
-        elif ch == KEY_SPACE:
-            if cursor in selected:
-                selected.discard(cursor)
+            redraw = True
+            if ch in (b"\x00", b"\xe0"):            # 功能键 → 读第二个扫描码
+                ch = msvcrt.getch()
+                if ch == KEY_UP:
+                    cursor = (cursor - 1) % len(entries)
+                elif ch == KEY_DOWN:
+                    cursor = (cursor + 1) % len(entries)
+                else:
+                    redraw = False
+            elif ch == KEY_CTRL_C:
+                return None
+            elif ch == KEY_SPACE:
+                if cursor in selected:
+                    selected.discard(cursor)
+                else:
+                    selected.add(cursor)
+            elif ch in (b"a", b"A"):
+                if len(selected) == len(entries):
+                    selected.clear()
+                else:
+                    selected = set(range(len(entries)))
+            elif ch == KEY_ENTER:
+                if selected:
+                    return [entries[i] for i in sorted(selected)]
+                redraw = False
+            elif ch in (b"q", b"Q", KEY_ESC):
+                return None
+            elif ch == b"s":
+                _open_shots(console)
+                redraw = False
             else:
-                selected.add(cursor)
-        elif ch in (b"a", b"A"):
-            if len(selected) == len(entries):
-                selected.clear()
-            else:
-                selected = set(range(len(entries)))
-        elif ch == KEY_ENTER:
-            if selected:
-                return [entries[i] for i in sorted(selected)]
-        elif ch in (b"q", b"Q", KEY_ESC):
-            return None
-        elif ch == b"s":
-            _open_shots(console)
+                redraw = False
+            if redraw:
+                live.update(render(), refresh=True)
 
 
 def _ask_mode(console: Console, n: int) -> list[str] | None:
@@ -142,6 +162,7 @@ def main() -> int:
         if picked is None:
             console.print("[dim]再见。[/]")
             return 0
+        console.clear()                      # Live 保留了菜单帧, 执行阶段从干净屏开始
         argv = _ask_mode(console, len(picked))
         if argv is None:
             continue
