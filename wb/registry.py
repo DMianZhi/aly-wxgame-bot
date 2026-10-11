@@ -297,10 +297,12 @@ SELFTESTS = [
             "＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) "
             "＋人类模式 stdout **完全为空**(日志已全让给 stderr)"),
     _e("wbtui_selftest", "wbtui 外壳离线自检", SELFTEST, kit=True,
-       note="5 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）："
-            "用例表 22 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 "
+       note="8 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）："
+            "用例表 23 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 "
             "＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr "
-            "日志＋解析结果 dict＋退出码)"),
+            "日志＋解析结果 dict＋退出码) ＋多选勾选渲染(✔) ＋批量汇总面板三态 "
+            "＋**批量顺序执行** dry(依序 2/2)；2026-10-11: 菜单换 msvcrt 按键循环 "
+            "(↑↓移动/空格勾选/a全选/Enter执行勾选/A一键全部)，输编号单跑移除"),
     _e("smoke", "冒烟测试", SELFTEST, flags="-",
        note="配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性"),
 ]

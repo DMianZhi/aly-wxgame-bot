@@ -67,9 +67,11 @@ def kill_tree(p: subprocess.Popen) -> None:
 
 
 def run_console(console, repo: str, argv: list[str], *, cwd: Path,
-                log_limit: int = 18) -> tuple[dict | None, int | None, list[str], bool]:
+                log_limit: int = 18, log_title: str | None = None
+                ) -> tuple[dict | None, int | None, list[str], bool]:
     """跑一个用例并把 stderr 实时滚进 Live 面板。
 
+    log_title: 日志面板标题(批量模式用来显示「第 n/N · 用例名」)。
     返回 (结果 dict | None, 退出码, 日志行, 是否被用户中断)。
     """
     p = _popen(repo, argv, cwd)
@@ -84,7 +86,8 @@ def run_console(console, repo: str, argv: list[str], *, cwd: Path,
         t.start()
 
     interrupted = False
-    with Live(view.log_panel(logs, limit=log_limit), console=console,
+    with Live(view.log_panel(logs, limit=log_limit, title=log_title or "实时日志"),
+              console=console,
               refresh_per_second=10, transient=False) as live:
         try:
             while True:

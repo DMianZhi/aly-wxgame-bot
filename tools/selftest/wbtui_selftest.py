@@ -146,12 +146,75 @@ def case_end_to_end(_rp):
                        if not probs else "; ".join(probs))
 
 
+def case_multi_select_render(_rp):
+    """⑥ 多选渲染: 勾选行带 ✔、表头多「选」列、未选行没有。"""
+    entries = registry.by_group(registry.DAILY)
+    txt = _render(view.cases_table(entries, selected={0, 2}, cursor=1))
+    n_check = txt.count("✔")
+    probs = []
+    if n_check != 2:
+        probs.append(f"✔ 数 {n_check} != 2")
+    if "选" not in txt.splitlines()[2]:
+        probs.append("「选」列表头缺失")
+    plain = _render(view.cases_table(entries))
+    if "✔" in plain:
+        probs.append("纯展示模式不该出现 ✔")
+    return not probs, ("勾选 2 处 + 选列存在 + 纯展示无 ✔" if not probs else "; ".join(probs))
+
+
+def case_summary_table(_rp):
+    """⑦ 批量汇总面板: 成功/失败/被中断+dry 标记。"""
+    rows = [
+        {"title": "用例A", "ok": True, "code": 0, "dur": 1.2, "dry": False, "interrupted": False},
+        {"title": "用例B", "ok": False, "code": 1, "dur": 3.4, "dry": True, "interrupted": False},
+        {"title": "用例C", "ok": False, "code": 0, "dur": 0.5, "dry": True, "interrupted": True},
+    ]
+    txt = _render(view.summary_table(rows))
+    probs = []
+    for want in ("完成 1/3", "用例A", "用例B", "用例C", "被中断", "dry", "✗"):
+        if want not in txt:
+            probs.append(f"缺 {want!r}")
+    if "1.2s" not in txt or "3.4s" not in txt:
+        probs.append("耗时列缺失")
+    return not probs, ("汇总三态齐全" if not probs else "; ".join(probs))
+
+
+def case_run_batch(_rp):
+    """⑧ 批量顺序执行: _run_batch 依序跑 2 个假用例(dry) + 汇总面板。"""
+    from types import SimpleNamespace
+    paths = []
+    for tag in ("A", "B"):
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                         encoding="utf-8") as f:
+            f.write(FAKE_CASE)
+            paths.append(f.name)
+    entries = [SimpleNamespace(repo=p, title=f"假用例{t}") for t, p in zip(("A", "B"), paths)]
+    console = Console(record=True, width=120, force_terminal=False, no_color=True)
+    try:
+        m = __import__("wbtui.__main__", fromlist=["_run_batch"])
+        m._run_batch(console, entries, dry=True)
+    finally:
+        for p in paths:
+            Path(p).unlink(missing_ok=True)
+    txt = console.export_text()
+    probs = []
+    for want in ("[1/2]", "[2/2]", "假用例A", "假用例B", "批量执行汇总", "完成 2/2"):
+        if want not in txt:
+            probs.append(f"缺 {want!r}")
+    if txt.index("假用例A") > txt.index("假用例B"):
+        probs.append("执行顺序不对(A 应在 B 前)")
+    return not probs, ("依序 2/2 + 汇总齐全" if not probs else "; ".join(probs))
+
+
 SCENES = [
     ("①用例表覆盖注册表", [], case_cases_table),
     ("②结果面板三态", [], case_result_panel),
     ("③日志面板尾部截断", [], case_log_panel),
     ("④stdout 解析容错", [], case_parse_json),
     ("⑤端到端: 假用例实时日志+结果", [], case_end_to_end),
+    ("⑥多选勾选渲染", [], case_multi_select_render),
+    ("⑦批量汇总面板三态", [], case_summary_table),
+    ("⑧批量顺序执行(dry)", [], case_run_batch),
 ]
 
 if __name__ == "__main__":

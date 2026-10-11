@@ -32,11 +32,14 @@ uv run python main.py check      # 环境自检（窗口/截屏/模板/配置）
 uv run python -m wbtui
 ```
 
-列出每日用例（用途/每日额度/开关，读 `wb/registry.py` 单一事实源）→ 输入编号 → 默认走 **dry 演练**（零点击），
-真跑要再确认一次（会真实消耗每日次数）→ stderr 日志实时滚动 → 结束出结果面板（成败/code/耗时/关键节点/留证截图）。
-`q` 退出、`r` 重跑上一个、`shots` 打开截图目录；`Ctrl+C` 停当前用例。
+列出每日用例（用途/每日额度/开关，读 `wb/registry.py` 单一事实源）→ **↑↓ 移动光标、空格勾选（多选）、
+a 全选/清空、Enter 执行勾选、A 一键执行全部** → 默认走 **dry 演练**（零点击），
+真跑要再确认一次（会真实消耗每日次数）→ stderr 日志实时滚动 → 每个用例出结果面板、
+批量跑完出**汇总面板**（每行 成败/code/耗时/dry/中断 标记）。
+`s` 打开截图目录、`q` 退出；`Ctrl+C` 停当前用例（批量模式下会问是否继续队列）。
 
 实现上**不 import 用例**，而是以子进程跑下面那条 `--json` 命令 —— 与 AI 走同一条路径，人机不会漂移。
+菜单是 msvcrt 按键循环（Windows 标准库，零新依赖）。
 
 ## 给 AI / 脚本调用：--json
 
@@ -141,7 +144,7 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 19 | 奖励领取离线自检 | `uv run python tools/selftest/claim_reward_selftest.py` | - | `--dry` | 6 用例（3 张 812x1518 真帧：首页/奖励面板6行全橙/领后全灰）：入口定位 ＋可领检测(find_all=6 行, 首行 700,386) ＋领后不可再命中 ＋无可领路径(留证收工不算失败) ＋dry ＋锁 |
 | 20 | 陨石陷阱闪击离线自检 | `uv run python tools/selftest/meteor_trap_selftest.py` | - | `--dry` | 6 用例（2 张 812x1518 真帧：活动关卡页全页 + 闪击对话框[只开未确认零消耗拍的]）：判层(对话框先于活动页) ＋闪击键锚点落点(564,588) ＋极难页签**预测点点击**(卡1页签默认非选中态, 共享选中模板仅 0.867) ＋跨卡不串台(vs 卡2/卡3 ≤0.14) ＋dry ＋锁 |
 | 21 | --json 契约离线自检 | `uv run python tools/selftest/json_contract_selftest.py` | - | `--dry` | 5 用例（真起子进程 + 分离两条管道，唯一能测到「stdout 干净」的办法）：--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) ＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) ＋人类模式 stdout **完全为空**(日志已全让给 stderr) |
-| 22 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 5 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 22 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) |
+| 22 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 8 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 23 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) ＋多选勾选渲染(✔) ＋批量汇总面板三态 ＋**批量顺序执行** dry(依序 2/2)；2026-10-11: 菜单换 msvcrt 按键循环 (↑↓移动/空格勾选/a全选/Enter执行勾选/A一键全部)，输编号单跑移除 |
 | 23 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
 
 ### 维护工具（`tools/maint/`，9 个）
