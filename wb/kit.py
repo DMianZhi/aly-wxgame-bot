@@ -483,18 +483,25 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
     连累)。ral_back 找不到就试 nav_home(子页 0.975+, 首页标志 stage_btn 已先行拦截)。
     2026-10-11: 找不到返回键不再立即放弃 —— 领取/转场动画期间所有键都检不到
     (claim_reward 收尾实测: 2s 后页面自己就回首页了) → 等一拍再找, 连续找不到才停手。
+    2026-10-11 再修: BACK_KEY 点击无效就换 nav_home —— 寻宝 hub 的底部页签布局
+    没有真返回键, ral_back 在 (728,1439) 假命中 0.967 实际是页签栏(free_treasure
+    收尾连点 5 次全在切页签, 死活出不去; nav_home (86,216) 0.980 才是正路)。
     """
+    stuck = False     # BACK_KEY 点过但没回首页(命中可能是当前页的假阳性)
     for i in range(tries):
         if is_home(sc):
             if i:
                 log("已回首页")
             return True
         if dismiss_group_popup(sc):
+            stuck = False
             continue
         if sc.dry:
             log(f"[dry] 会点 返回键({BACK_KEY}) 回首页")
             return True
-        back = sc.find(BACK_KEY) or sc.find(HOME_NAV, 0.90)
+        back = None if stuck else sc.find(BACK_KEY)
+        if back is None:
+            back = sc.find(HOME_NAV, 0.90)
         if back is None:
             if i >= tries - 1:
                 log("[warn] 找不到返回键，停手（请手动回首页）")
@@ -502,6 +509,7 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
             time.sleep(wait)
             continue
         sc.click(back, f"返回(第{i + 1}次)")
+        stuck = True
         time.sleep(wait)
     return is_home(sc)
 
