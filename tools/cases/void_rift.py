@@ -12,6 +12,10 @@
       vk_back, 不在 kit.goto_home 的模板覆盖内 → 本用例自带返回循环)
     ⚠ 免费钮只在**未领取**时是亮黄可点; 已领/冷却 → vk_free 不命中 → 留证收工(不算失败)
     ⚠ 付费钮(500💎/6元/18元)与免费钮同款黄底 → 阈值必须 ≥0.90, 绝不误点付费
+    ⚠ **点完免费必须先领取**(claim_btn)。「恭喜获得」是模态弹窗, 不领掉会盖住后续所有
+      按钮(连返回都点不动)。2026-10-11 实跑翻车: 下面的订单页护栏误报把领取整段跳过 →
+      弹窗滞留 → 返回连点 6 次全失败 → code=1。故领取排在护栏**之前**, 且订单页判据
+      改用「白底」(暗底判据对任何深色界面必误报, 详见 _order_sheet_open)
     ⚠ 虚空裂隙卡在右列**最下**(深空巡航/逐星长阶/虚空裂隙), 逐星长阶模板 stage_stair
       实测 (701,613) 可作校准锚
 
@@ -48,6 +52,8 @@ BACK_TPL = "vk_back"            # 本页链自带的底部「返回」钮
 # ⚠ 付费误点事故(2026-10-10): 免费已领后 vk_free 掉到**次优 0.934**=相邻 18元钮 →
 #   点开充值订单页。从此 find_free() **必须位置锚定**: 分数≥0.90 且落点在 FREE_XY±25px。
 ORDER_X = (120, 353)    # 充值订单弹窗的关闭 X(左上角) —— 万一误开, 用它兜底关掉
+ORDER_LIGHT = 0.50      # 订单页是**白底**面板 → 该 ROI 亮像素占比必须过半
+                        # (奖励弹窗暗底实测 0.00, 真订单页 0.85)
 
 
 def _ref(x: int, y: int):
@@ -72,14 +78,24 @@ def find_free(sc: kit.Screen):
 
 
 def _order_sheet_open(sc: kit.Screen) -> bool:
-    """有没有误开充值订单弹窗(其左上角有个专属的深色 × 字形)。"""
-    import numpy as np
+    """有没有误开充值订单弹窗 —— 判据: 左上角出现**白底**订单面板(其最显著特征)。
+
+    ⚠ 旧判据「暗像素 > 150」**必误报**(2026-10-11 实跑翻车): 该 ROI 在真订单页数到的
+      是 × 的字形笔画(实测 111~238 个暗像素), 但在任何**深色界面**上整块 ROI 都是暗的
+      (「恭喜获得」奖励弹窗实测 841/841 全暗) → 同样过阈。于是免费点完弹出的奖励弹窗
+      被当成订单页 → 关一下直接 `return False`, **领取步骤被整段跳过** → 弹窗滞留挡住
+      后续所有按钮 → 返回全失败(code=1)。
+    现判据要求「亮像素占比 > 50% **且**仍有深色字形」: 真订单页 light=0.85 ✓，
+      奖励弹窗 light=0.00 ✗。
+    """
     x, y = ORDER_X
     roi = sc.roi(*_ref_roi(x, y, 29, 29), img=sc.grab())
     if roi is None or getattr(roi, "size", 0) == 0:
         return False
     g = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    return int((g < 120).sum()) > 150      # 实测 × 字形暗像素 238
+    light = float((g > 200).mean())
+    dark = int((g < 120).sum())
+    return light > ORDER_LIGHT and dark > 50
 
 
 def _ref_roi(x: int, y: int, w: int, h: int):
@@ -98,15 +114,24 @@ def _close_order_sheet(sc: kit.Screen) -> None:
 PLAN = """[dry] 计划:
   首页 --(stage_btn)--> 关卡页 --(vk_entry 虚空裂隙卡, 右列最下)--> 虚空裂隙页
   --(vk_workshop 底部最左「秘钥工坊」)--> 密钥工坊页
-  --(vk_free 左上卡「免费」钮, 阈值 0.90 **且必须落在免费槽位 ±25px**)--> 恭喜弹窗领取
+  --(vk_free 左上卡「免费」钮, 阈值 0.90 **且必须落在免费槽位 ±25px**)--> 恭喜弹窗 claim_btn 领取
   --(vk_back 逐层返回)--> 首页
   无可领: 免费钮不命中/不在槽位 → 留证收工(不算失败)
-  护栏: 万一误开充值订单页 → 只点其左上角 X 关闭, 绝不碰「确认」"""
+  护栏: 先领取; 仅当没弹奖励窗时才查充值订单页(白底判据) → 只点其左上角 X, 绝不碰「确认」"""
 
 
 def to_workshop(sc: kit.Screen) -> bool:
     """从任意页到密钥工坊页(残留面板顺手退回)。"""
     for _ in range(8):
+        # 残留的「恭喜获得」奖励弹窗(上一次中断留下的) 会盖住一切按钮 → 先领掉它
+        # (2026-10-11: 免费点完若领取被跳过就留下这个孤岛弹窗, 下次运行直接卡死)
+        if sc.find(FREE_TPL, TH_FREE) is None:
+            orphan = sc.find("claim_btn")
+            if orphan is not None:
+                log("发现残留的「恭喜获得」弹窗 → 先领取(否则它盖住后续所有按钮)")
+                sc.click(orphan, "残留恭喜弹窗-领取")
+                kit.nap(2.0)
+                continue
         # 到页判定: **任何** vk_free 命中(含被槽位闸门拒绝的付费钮命中)都说明已在工坊页
         # —— 免费已领时槽位闸门会拒付, 不能拿它当「到没到页」的判据(2026-10-10 修)
         if sc.find(FREE_TPL, TH_FREE) is not None:
@@ -137,6 +162,22 @@ def to_workshop(sc: kit.Screen) -> bool:
     return False
 
 
+def _claim_popup(sc: kit.Screen) -> int:
+    """点掉「恭喜获得」弹窗的「领取」, 返回点掉的次数(0 = 没弹窗)。
+
+    ⚠ 这一步**绝不能省**: 弹窗是模态层, 不领掉会盖住后续所有按钮(返回也点不动)。
+    """
+    n = 0
+    for _ in range(4):
+        c = sc.find("claim_btn")
+        if c is None:
+            break
+        sc.click(c, "恭喜获得-领取")
+        n += 1
+        kit.nap(2.0)
+    return n
+
+
 def claim_free(sc: kit.Screen) -> bool:
     """在工坊页点「免费」并领取。
 
@@ -151,19 +192,19 @@ def claim_free(sc: kit.Screen) -> bool:
         return True
     sc.click(free, "免费(槽位锚定)")
     kit.nap(3.0)
-    # ⚠ 护栏: 万一仍误开充值订单页 → 只点其左上角 X 关掉(绝不碰确认)
+    # ① **主路径: 先领取**。点免费成功 → 弹「恭喜获得」→ 必须点「领取」。
+    #   (2026-10-11 修: 旧版把护栏排在这一步**之前**, 护栏误报时直接 return,
+    #    领取被整段跳过 → 弹窗滞留 → 返回全失败)
+    claimed = _claim_popup(sc)
+    if claimed:
+        log(f"免费领取完成 (恭喜弹窗领取 {claimed} 次)")
+        return True
+    # ② 没弹奖励窗, 才查是否误开充值订单页(护栏) —— 只点其左上角 X, 绝不碰「确认」
     if _order_sheet_open(sc):
         _close_order_sheet(sc)
         return False
-    claimed = 0
-    for _ in range(4):
-        c = sc.find("claim_btn")
-        if c is None:
-            break
-        sc.click(c, "恭喜获得-领取")
-        claimed += 1
-        kit.nap(2.0)
-    log(f"免费领取完成 (恭喜弹窗领取 {claimed} 次)")
+    log("点完免费既无奖励弹窗也无订单页 → 留证收工(视为已领/冷却)")
+    sc.shot("vk_nothing")
     return True
 
 
