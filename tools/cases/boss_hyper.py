@@ -58,8 +58,6 @@ ARROW_LEFT = (39, 697)      # 左缘「上一个」箭头(暗色样式模板分�
 CHAL_BTN = (511, 1407)      # 「超限挑战」按钮(基准坐标; 811 帧实测中心)
 DONE_TH = 0.90              # hyper_done(挑战成功绿标)阈值: 已击败 1.000 / 未完成 0.693
                             # (中间带很宽, 0.90 稳) —— 绿标在右卡右上角斜角, 左卡绿勾不串台
-NUKE_125_TH = 0.97          # hyper_125(「超限 125%」行)阈值: 实测 0.996~1.000
-                            # 出击前提: 抗性别被改(非 125% = 打不过的不打)
 
 STATIONS = {
     "drago":   ("hyper_stn_drago",   "装甲"),
@@ -190,11 +188,6 @@ def already_done(sc: kit.Screen, img=None) -> bool:
     return _find(sc, "hyper_done", DONE_TH) is not None
 
 
-def nuke_125_ok(sc: kit.Screen, img=None) -> bool:
-    """出击前提: 抗性面板显示「超限 125%」(模板行 0.996+, 非 125% 不出击)。"""
-    return _find(sc, "hyper_125", NUKE_125_TH) is not None
-
-
 def close_key_popup(sc: kit.Screen) -> bool:
     """关「黄金钥匙」物品详情弹窗(点超限挑战误触奖励图标时弹)。"""
     x = _find(sc, "popup_blue_x", 0.80)
@@ -231,8 +224,7 @@ def open_detail(sc: kit.Screen, tpl: str, name: str) -> bool:
 def fight_one(sc: kit.Screen) -> bool:
     """打一场当前 boss: 超限挑战 → 确认 → 局内全自动 → 回详情页/超限页。
 
-    出击前提(2026-10-11 用户反馈)在 one_station 里把关: ①今天还没打
-    ②「超限 125%」在场 —— 这里只负责打。
+    出击前提(今天未击败)在 one_station 里把关, 这里只负责打。
     节拍: 初始技能 3.5s/爆弹 6s 后再点(进场动画 3~4s), 爆弹 CD 20s。
     """
     chal = _find(sc, "hyper_chal")
@@ -304,7 +296,7 @@ def one_station(sc: kit.Screen, key: str) -> int:
     if not open_detail(sc, tpl, name):
         return 0
     done = 0
-    skipped = 0                          # 已击败/前提不符而跳过的场数
+    skipped = 0                          # 今日已击败而跳过的场数
     seen: list[np.ndarray] = []          # 已打 boss 的名条指纹
     forward = True                       # True=向右(下一个) / False=向左(上一个)
     flipped = False                      # 已换过方向(防来回抖动)
@@ -313,14 +305,12 @@ def one_station(sc: kit.Screen, key: str) -> int:
         if cur is not None:
             seen.append(cur)
         bn = "未见" if cur is None else "可见"
-        # ---- 出击前提(2026-10-11 用户反馈): ③今天未击败 ④超限 125% 才打 ----
+        # ---- 出击前提(2026-10-11 二次反馈): 只要今天未击败就打 ----
+        # (早先「非 125% 跳过」的门槛已删: 不同 boss 抗性数值不同, 那条规则把
+        #  未击败的 boss 全跳过 → 列表页 8/12、6/12 打不满, 活动最后一天漏打)
         if already_done(sc):
             log(f"--- {name} 第 {done + skipped + 1}/{BOSS_TOTAL} 场 (名条{bn}): "
                 f"今日已击败(挑战成功绿标) → 跳过")
-            skipped += 1
-        elif not nuke_125_ok(sc):
-            log(f"--- {name} 第 {done + skipped + 1}/{BOSS_TOTAL} 场 (名条{bn}): "
-                f"抗性面板不是「超限 125%」→ 跳过(不打硬仗)")
             skipped += 1
         else:
             log(f"--- {name} 第 {done + skipped + 1}/{BOSS_TOTAL} 场 (名条{bn}) ---")
@@ -371,9 +361,9 @@ def one_station(sc: kit.Screen, key: str) -> int:
             if not _switch_step("反手"):
                 log(f"{name}: 反向也切不动 → 停在本站(已完成 {done} 场)")
                 return done
-        # 反向回程一串都是本场次已打过的属正常, 用绿标/前提判断决定去留 ——
-        # 前提不满足会走上面 skipped++, 已被绿标/125% 判据接管, 无需 name_seen 跳过。
-    log(f"{name}: 本站收工 → 完成 {done} / 跳过 {skipped} (挑战成功或前提不符)")
+        # 反向回程一串都是本场次已打过的属正常, 用绿标判断决定去留 ——
+        # 已击败会走上面 skipped++, 无需 name_seen 跳过。
+    log(f"{name}: 本站收工 → 完成 {done} / 跳过 {skipped} (挑战成功)")
     # 收尾回「详情页或超限页」(下一站自己导航)
     if not fight_settle(sc):
         log(f"{name}: 打完但收尾停不回详情页(下一站会自己导航)")
@@ -402,7 +392,7 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
         got = one_station(sc, k)
         total += got
         log(f"站点 {STATIONS[k][1]} 完成 {got}/{BOSS_TOTAL} 场")
-    log(f"超限模式总计: 完成 {total} 场(跳过的=今日已击败或前提不符)")
+    log(f"超限模式总计: 完成 {total} 场(跳过的=今日已击败)")
     return True   # 跳过不是失败: 出击前提是动态的, 完成多少算多少
 
 

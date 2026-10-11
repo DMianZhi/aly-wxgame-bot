@@ -279,12 +279,17 @@ def case_walk_skip_done(rp):
     return got == 4 and seq == expect, f"完成 {got} 序列={seq} (期望 {expect})"
 
 
-def case_walk_skip_125(rp):
-    """⑦(新) 抗性不是 125% → 全站零出击(一场都不打)。"""
+def case_walk_fight_non125(rp):
+    """⑦(改 2026-10-11 二次反馈) 抗性不是 125% **照样出击**。
+
+    旧的「非 125% 全站零出击」门槛已删: 不同 boss 抗性数值不同, 那条规则把
+    未击败的 boss 全跳过(列表页 8/12、6/12 打不满)。现在只认「今日未击败」。
+    """
     walker = Walker(5, resist_125=False)
     fights: list[int] = []
     got = _run_walk(walker, fights)
-    return got == 0 and not fights, f"完成 {got} (期望 0) 出击={fights}"
+    seq = [i + 1 for i in fights]
+    return got == 6 and seq == [6, 5, 4, 3, 2, 1], f"完成 {got}/6 序列={seq}"
 
 
 def case_dry(rp):
@@ -301,7 +306,7 @@ SCENES = [
      [DETAIL0, DIALOG, IN_BATTLE, REVIVE, RESULT, DETAIL0, DETAIL0, DETAIL0], case_fight_one),
     ("walk 双向扫掠: 起点#6 反向 6 场", [DETAIL0], case_walk_reverse),
     ("walk: 已击败绿标跳过(#3/#5)", [DETAIL0], case_walk_skip_done),
-    ("walk: 抗性非125%全站零出击", [DETAIL0], case_walk_skip_125),
+    ("walk: 抗性非125%照样出击(门槛已删)", [DETAIL0], case_walk_fight_non125),
     ("dry 零点击零写盘", [HYPER0], case_dry),
 ]
 
