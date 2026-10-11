@@ -16,3 +16,6 @@ shots/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# ---- AI 助手工作区索引(自动生成, 非项目源码) ----
+.wpscomate/
