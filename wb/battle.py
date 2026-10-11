@@ -13,6 +13,11 @@
 ⚠ 技能要**周期性**点(默认每 5.2s 一次)，不是进局点一下:
     进局先过「资源加载中」页，此时盲点一次技能是空点；只点一次的老写法就再也不会补点
     → 表现为「技能没按到」。周期点击天然把这一下补回来。
+⚠ 爆弹(battle_nuke, 左下角)是**可选第二技能**: 传 nuke_period 才启用(BOSS 超限用,
+   CD 由调用方给: boss_hyper 传 20s, 2026-10-11 反馈把默认 30 改成 20)。
+   同样周期点、同样避让弹窗；第一发先试一次模板(0.942 实测命中)，
+   不中永久走 NUKE_XY 兜底 —— 与技能同一套缓存策略，但该周期内 0.8s 匹配可忽略，
+   不用两拍优化
 ⚠ 节拍必须**拆成两拍**，否则追不上 5.2s(2026-10-09 实测):
     实测**单个模板匹配 ~0.8s**(多尺度)，而一轮要判「复活/装备UP/结算/技能/离开」≈ 9 个模板
     ≈ 6.9s > 5.2s 周期 → 旧写法(先全部识别完再看要不要点技能)实际间隔被拖到 12s。
@@ -36,6 +41,11 @@ SKILL_XY = (740, 1300)      # 局内右下角技能键(与 battle_watch.py 同�
 SKILL_PERIOD = 5.2          # 技能点击间隔(秒): 技能冷却约 5s，按 5.2s 卡节奏连点
 SKILL_FIRST = 0.5           # 进局后先等 0.5s 再点第一下(等「资源加载中」页翻过去)
 SKILL_TH = 0.90             # battle_skill 的阈值(比 TH 严一点，少误命中)
+NUKE_XY = (116, 1307)       # 局内左下角爆弹键(基准坐标): 811x1516 实帧命中(100,1303)
+                            # 经 bot.client_to_ref 反推；BOSS 超限 boss 很难打，
+                            # 除右下技能外还要周期放爆弹(实测 2026-10-10)
+NUKE_FIRST = 3.0            # 进局后先等 3s 再放第一发爆弹(等加载页翻过去+开局站定)
+NUKE_TH = 0.88              # battle_nuke 的阈值
 BATTLE_TPLS = ("boss_revive_diamond", "boss_equipup_title", "boss_result_next")
 #   ↑ 技能要**按周期反复点**，不是进局点一下: 进局先过「资源加载中」页，那一下是空点。
 #   templates/battle_skill.png 裁自《导弹猎场》局内真帧(601x1143 → 按画布高比归一到 845 基准)，
@@ -67,27 +77,38 @@ def look_battle(sc) -> dict:
 
 
 def fight(sc, out_of_battle: Callable, *, skill_xy: tuple = SKILL_XY,
-          skill_period: float = SKILL_PERIOD,
+          skill_period: float = SKILL_PERIOD, skill_first: float | None = None,
+          nuke_period: float | None = None, nuke_first: float | None = None,
           timeout: float = FIGHT_TIMEOUT, label: str = "局内") -> tuple[bool, int, int]:
     """跑完一轮局内，直到 out_of_battle(sc) 连续命中够次数。
+
+    skill_first/nuke_first: 进局到第一发节拍的延迟(秒)，None=用模块默认
+    (SKILL_FIRST/NUKE_FIRST)。boss_hyper 实测开局前 3~4s 是进场动画+计分板，
+    早点是空点 → 传入 +3s。
 
     out_of_battle(sc) 返回「看着已离开战斗时需要的连续命中次数」：
         0 = 还在战斗里；1 = 确认无疑(如回到列表页，立即收工)；3 = 需连续 3 次
         （战斗间隙会短暂闪过战斗外页面，所以要防抖）
 
     局内每 skill_period 秒点一次右下角技能(不是只点一次)；复活/结算后 0.5s 补点。
+    nuke_period 给定则在局内每 nuke_period 秒点一次左下角爆弹(CD 30s)，
+    复活/结算弹窗期间与收尾期同样避让(不重置节拍——爆弹 CD 按真实时间走)。
     返回 (是否跑完, 结算页轮次, 复活次数)；超时返回 (False, 轮次, 复活次数)。
-    超时会留证截图 fight_timeout。
+    超时会留证截图 fight_timeout。爆弹发数只进日志(不改三元组返回，兼顾旧调用方)。
 
     节拍与识别的分工(单模板匹配 ~0.8s，一轮预算 <5.2s):
         ① 技能: 到点先点(纯点击)，位置缓存在 sk_hit，只试一次匹配，不中永久兜底
         ② 弹窗: 每轮都判(复活/装备UP/结算)，一项不漏
         ③ 离开战斗: 隔轮判(out_of_battle 一次要查 5 个模板 ~3.7s)
     """
-    rounds = revives = equipups = 0
+    rounds = revives = equipups = nukes = 0
     hits = 0
-    next_skill = time.time() + SKILL_FIRST   # 进局先等 0.5s(资源加载中页会吞掉第一下)
+    sf = SKILL_FIRST if skill_first is None else skill_first
+    nf = NUKE_FIRST if nuke_first is None else nuke_first
+    next_skill = time.time() + sf            # 进局先等一下(资源加载中页会吞掉第一下)
     sk_hit = None                            # None=未试 / ""=试过没中(永久兜底坐标)
+    nk_hit = None                            # 爆弹同款: None=未试 / ""=永久兜底
+    next_nuke = None if nuke_period is None else time.time() + nf
     last_dialog = False
     tick = 0                                 # 离开战斗判定隔轮做的开关
     t0 = time.time()
@@ -104,6 +125,21 @@ def fight(sc, out_of_battle: Callable, *, skill_xy: tuple = SKILL_XY,
                 sc.click_base(skill_xy[0], skill_xy[1], "右下角技能(坐标兜底)")
             # 从**本次点击时刻**递推: 识别耗时不再一期一期累积进间隔
             next_skill = now + skill_period
+        # ①b 爆弹节拍(可选): 30s 才一发的慢节拍，匹配开销可忽略；避让条件同技能
+        if next_nuke is not None and now >= next_nuke and not last_dialog and not hits:
+            if nk_hit:
+                sc.click(nk_hit, "左下角爆弹(模板·缓存)")
+            elif nk_hit is None:                 # 第一发试一次模板，之后永久二选一
+                nk_hit = find(sc, "battle_nuke", NUKE_TH) or ""
+                if nk_hit:
+                    log(f"爆弹键模板命中 {nk_hit[:2]}(缓存)")
+                    sc.click(nk_hit, "左下角爆弹(模板)")
+                else:
+                    sc.click_base(NUKE_XY[0], NUKE_XY[1], "左下角爆弹(坐标兜底)")
+            else:
+                sc.click_base(NUKE_XY[0], NUKE_XY[1], "左下角爆弹(坐标兜底)")
+            nukes += 1
+            next_nuke = now + nuke_period
         # ② 弹窗判定(每轮 1 次抓帧、3 个模板)
         st = look_battle(sc)
         rv = st["boss_revive_diamond"]
@@ -145,12 +181,14 @@ def fight(sc, out_of_battle: Callable, *, skill_xy: tuple = SKILL_XY,
                 if need:
                     hits += 1
                     if hits >= need:
-                        log(f"{label}结束 (结算页 {rounds} 张 / 复活 {revives} / 装备UP {equipups})")
+                        log(f"{label}结束 (结算页 {rounds} 张 / 复活 {revives} / 装备UP {equipups}"
+        + (f" / 爆弹 {nukes} 发" if nuke_period is not None else "") + ")")
                         return True, rounds, revives
                 else:
                     hits = 0
         # ≤一个基础轮询间隔，且不越过下次点技能的时点
         nap(min(POLL, max(0.4, next_skill - time.time())))
-    log(f"{label}等待超时(结算 {rounds} / 复活 {revives} / 装备UP {equipups})")
+    log(f"{label}等待超时(结算 {rounds} / 复活 {revives} / 装备UP {equipups}"
+        + (f" / 爆弹 {nukes} 发" if nuke_period is not None else "") + ")")
     sc.shot("fight_timeout")
     return False, rounds, revives
