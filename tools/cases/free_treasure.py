@@ -59,11 +59,14 @@ def goto_treasure(sc: kit.Screen) -> bool:
         log("找不到寻宝入口(nav_treasure)，可能不在首页")
         return False
     sc.click(entry, "寻宝入口")
-    if not sc.dry:
-        ok = page_ready(sc)
-        log("寻宝页就绪" if ok else "寻宝页未就绪")
-        return ok
-    return True
+    if sc.dry:
+        return True
+    # ⚠ 点完立即单帧判会撞上页面切换动画(2026-10-11 实测: 留证帧上 treasure_tab
+    #   0.996 早已就位, 当时的单帧却报「未就绪」) → 未中再轮询等 6s
+    ok = page_ready(sc) or sc.wait("treasure_help", 6) is not None \
+        or sc.find("treasure_tab") is not None
+    log("寻宝页就绪" if ok else "寻宝页未就绪")
+    return ok
 
 
 def reveal_cards(sc: kit.Screen) -> list[tuple[int, int, float]]:

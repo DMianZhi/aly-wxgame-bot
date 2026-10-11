@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
+from tools.maint.clear_bag import clear_if_full  # noqa: E402   # 背包满自动清理
 
 FLOW_TIMEOUT = 90          # 单次抽奖（点击 → 动画 → 领取）总超时
 
@@ -71,7 +72,13 @@ def claim_if_any(sc: kit.Screen, timeout: float = FLOW_TIMEOUT) -> bool:
     """等「恭喜获得」→ 点领取（顺带兜住跳过卡弹窗/看广告形态）。返回是否领到。"""
     r = kit.ad_flow(sc, page="turn_refresh", timeout=timeout)
     if r == "timeout":
-        log("未等到「恭喜获得」/未点到领取")
+        # 2026-10-11 实测: 背包满时转盘奖励发不出 → 弹「背包已满」拦截层,
+        # 「恭喜获得」永不来(免费次数已耗)。识别它 → 清背包+收干净弹层, 如实报失败。
+        if sc.find("bag_full") is not None:
+            log("⚠ 「背包已满」拦截了转盘奖励(恭喜弹窗不会来) → 清理背包再收工")
+            clear_if_full(sc.rect, log, dry=sc.dry)
+        else:
+            log("未等到「恭喜获得」/未点到领取")
         return False
     return True
 
