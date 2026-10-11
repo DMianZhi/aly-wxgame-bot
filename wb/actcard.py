@@ -160,11 +160,17 @@ def goto_card(sc: kit.Screen, title_tpl: str, dlg_tpl: str | None = None) -> boo
             # ⚠ 关卡页/首页资源未加载完时有数秒「空载帧」: 单帧判层必误判 unknown。
             #   2026-10-09 实测: 点「闯关模式」7s 后仍判 unknown，但同一刻的留证截图
             #   已完整渲染(章节/入口全在)。→ unknown 不当终局，等一轮重判。
+            # 2026-10-11 再修: 前一个用例可能把游戏留在**任意遗留页**(实测: 寻宝 hub),
+            # 干等救不回来 → 第 2 次仍 unknown 就尽力回首页再重新导航
+            # (第 1 次只等待, 避免在「加载慢」场景乱点返回键)。
             unknown += 1
             if unknown >= UNKNOWN_TOLERATE:
                 log("未知页面(非首页/关卡页/活动关卡页) → 请人工确认")
                 sc.shot("unknown")
                 return False
+            if unknown == 2 and kit.goto_home(sc):
+                unknown = 0
+                continue
             log(f"页面未就绪(unknown 第 {unknown} 次) → 等 {NAV_WAIT}s 重判")
             kit.nap(NAV_WAIT)
         if sc.dry:
