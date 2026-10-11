@@ -74,7 +74,7 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
 | 1 | 免费体力 | `uv run python tools/cases/free_stamina.py` | 4/日 | `--dry --max=N` | 点击生效判据=「免费」按钮消失(非页面变化)；弹窗在场不重复点入口；2026-10-10 美术轮换: 真弹窗 stamina_close 掉到 0.905~0.997 摆动(弹窗内轮播横幅)、与首页假阳性 0.904 重叠 → 判层加 sweep_close(弹窗右上角通用 X)≥0.90 辅助判据; 弹窗不压暗(stage_btn 满血) → 提前退场必须 close_popup(否则盖住后续用例的商城入口) |
-| 2 | 免费扫荡卡 | `uv run python tools/cases/free_sweep.py` | 5/日 | `--dry --max=N` | 卡4 的免费按钮无模板 → 由卡图标中心下移 128px 算出；只吃第 4 个免费位 |
+| 2 | 免费扫荡卡 | `uv run python tools/cases/free_sweep.py` | 5/日 | `--dry --max=N` | 卡4 的免费按钮无模板 → 由卡图标中心下移 128px 算出；只吃第 4 个免费位; 2026-10-11 实测: 次数用尽时 card4 卡片**仍在**(倒计时态)、只有免费钮消失, 点空白无广告 → 放弃本轮 code=1(正确降级, README 旧说法「card4 不再出现」不成立) |
 | 3 | 商城免费礼包 | `uv run python tools/cases/free_gift.py` | 1/日 | `--dry` | 免广告直发 / 看广告两形态都要兼容 |
 | 4 | 星际探索 | `uv run python tools/cases/free_explore.py` | - | `--dry --max=N` | 整页阈值 0.90；exp_claim 须 ≥0.93；弹窗开着但无领取键=次数耗尽；默认上限 6 只是防呆, 实际循环到「次数耗尽」检测触发(2026-10-10: 默认 3 轮打满就收工漏领 1 次) |
 | 5 | 扫荡关卡 | `uv run python tools/cases/sweep_stage.py` | 普通5/5+英雄5/5 | `--max N --material N --dry` | ⭐ 材料优先(4 图标)——⚠「按计数升序」旧前提已不成立(2026-10-11 实测 273/289/268/304 非升序)，默认点第 1 个只是近似 + 双倍奖励(每关每日限次→无翻倍换关，连续 3 关才收工) + ensure_context 防误关面板 + 背包满先清理再重进; 2026-10-11 修**材料图标行坐标**(旧 y=345 已落在「3星/4星/5星材料」页签栏上，select_material 盲点会点中 3星页签把选好的 4星 切回 3星→整轮扫错) → 重测 (178/299/420/541 @ y=429) 且选完复查页签; 2026-10-10 页签改**几何判定**(3星选中态把 tab4 模板假阳性到 ≥0.96 真机扫错一整轮 3星): 选中页签=条带上唯一的宽半透明亮块(比同行背景亮+40~90, 行相对亮度>25 的列占比≥0.6, 文字断口≤50px 合并), 其中心须落在 4星槽位(TAB4_SLOT, 槽位中心固定 165/430/660, 选中只是原位变宽)±70px; 模板命中只作旧夹具回退 |
@@ -86,8 +86,8 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 11 | 陨石陷阱闪击 | `uv run python tools/cases/meteor_trap.py` | 2/日(游戏默认，消耗体力) | `--dry` | 活动关卡页**第一张卡**；整条流程在 wb/actcard.py(三张卡同款布局)：卡标题 ys_title 锚定 + 偏移(量自 812 帧 407,265)定位同款闪击键；先点「极难」页签(lm_hard 共享模板→取离本卡标题最近的命中)；ys_dlg_title 认对话框；标定 2026-10-10: ys_title 自匹配 1.000/次高 0.712/跨卡 ≤0.59 |
 | 12 | 激光迷宫闪击 | `uv run python tools/cases/laser_maze.py` | 2/日(游戏默认，消耗体力) | `--dry` | 活动关卡页**第二张卡**；整条流程在 wb/actcard.py(与导弹猎场共用一份，三张卡同款布局)：卡标题 lm_title 锚定 + 偏移(量自 814 帧 400,255)定位同款闪击键；先点「极难」页签(lm_hard，三张卡页签同款→取离本卡标题最近的命中)；对话框「闪击 2 次/⚡80」是游戏默认不擅改；局内复用 wb.battle.fight；回活动卡页连续 3 次算打完 |
 | 13 | 导弹猎场闪击 | `uv run python tools/cases/missile_hunt.py` | 2/日(游戏默认，消耗体力) | `--dry` | 活动关卡页两张卡「闪击」键**同款**(0.998/0.978) → 用卡标题 mh_title 锚定 + 偏移(601 帧上量得 301,176，按窗口缩放)；残留对话框直接闪击；「次数已耗尽」提示叠在活动关卡页上→prompt 最优先；对话框「闪击 N 次」不擅改(改次数=改消耗)；点完对话框「闪击」必须等**真的进局**(离开卡页+对话框, actcard.ENTER_WAIT)才开局内循环 —— 2026-10-10 实战: 该点击被吞时假完成(结算页 0 张、次数没消耗, 还在卡页上盲点技能) |
-| 14 | 寻宝 | `uv run python tools/cases/free_treasure.py` | - | `--dry --max=2` | 装备宝箱 + 高级装备宝箱两张卡的免费广告，各扣 1 次；广告中绝不点屏幕 |
-| 15 | 转盘 | `uv run python tools/cases/free_turn.py` | 1/日 | `--dry --max=1` | ⭐ 只在 turn_daily ≥0.85 时点；「购买💎30」是冷却付费键，绝不点 |
+| 14 | 寻宝 | `uv run python tools/cases/free_treasure.py` | - | `--dry --max=2` | ⭐ 2026-10-11 改版: 看完广告后卡上出现**金色宝箱, 点它才算领取完毕**(旧「开箱动画+中缝推进点」已废); 宝箱=金色像素双条件定位(金色 500~15000px 且 bbox 宽<450, 正常卡插画 33k/兑换页金色钮 7457 但宽 658 全拒); 广告皮肤换 v3(跳过广告条) → ad_close 命中中心偏左点不中, 重裁 × 本体 ad_close_v4; goto_treasure 点完入口必须轮询等待(单帧判定撞上切页动画必误报未就绪); 广告中绝不点屏幕 |
+| 15 | 转盘 | `uv run python tools/cases/free_turn.py` | 1/日 | `--dry --max=1` | ⭐ 只在 turn_daily ≥0.85 时点；「购买💎30」是冷却付费键，绝不点; 2026-10-11: 背包满时转盘奖励发不出 → 弹「背包已满」拦截层、恭喜弹窗永不来 (免费次数白耗) → 识别 bag_full 后 clear_if_full 清背包再如实报失败 |
 | 16 | 兑换星辉 | `uv run python tools/cases/free_star.py` | 1/日 | `--dry --max=1` | 认「带红点的四角金币」；底栏「转盘」红点与本用例无关，别被带偏 |
 | 17 | 十年集结 | `uv run python tools/cases/free_rally.py` | 宝箱+弹幕各1/日 | `--dry --no-wish` | ⭐ 首页「寻宝下方第一张卡」是活动卡翻页区 → 翻出金卡才能点进集结页 |
 | 18 | 战队捐献 | `uv run python tools/cases/guild_donate.py` | 金 3/日 + 钻 3/日 | `--type gold\|diamond\|both --times N --all [--dry]` | 入口在卡片**底部黄键**(226,1129 / 612,1129)，点卡片正中无效；半透明遮罩判层；丢点击重试不重复捐 |
@@ -451,7 +451,7 @@ tools/cases/       23 个每日用例: free_stamina, free_sweep, free_gift, free
 tools/crop/        14 个模板裁剪工具: crop_quickadv, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_hyper, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
 tools/selftest/    23 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, smoke
 tools/maint/       9 个维护工具: live_check, battle_watch, close_popup, probe_live, clear_bag, docs, build_digits, build_bscore_digits, build_mcount_digits
-templates/         按钮模板图（233 张，由 crop_* 用例与运行期裁剪产出）
+templates/         按钮模板图（234 张，由 crop_* 用例与运行期裁剪产出）
 shots/             截图：snap_* 校准源、*_selftest 判层夹具、montage 预览、坐标 CSV
 ```
 <!-- END:STRUCTURE -->
