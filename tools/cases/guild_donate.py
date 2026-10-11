@@ -339,9 +339,12 @@ def parse_kinds(arg: str) -> list[str]:
 
 
 def run(sc: kit.Screen, args: kit.Args) -> bool:
-    kinds = parse_kinds(args.type or "gold")
-    times = ALL_MAX if args.all else args.n_times(1)
-    log(f"计划: {args.type or 'gold'} x{times} 次")
+    # 默认 = both × 各 3 次(金 3/日 + 钻 3/日, 与额度一致)。
+    # ⚠ 2026-10-11 实测: 旧默认 `type or "gold"` + times=1 只捐一次金币、
+    #   钻石压根不碰 —— 每日 6 次捐献漏掉 5 次。
+    kinds = parse_kinds(args.type or "both")
+    times = ALL_MAX if args.all else args.n_times(3)
+    log(f"计划: {args.type or 'both'} x{times} 次")
 
     st = state(sc)
     log(f"当前状态 {st}")
@@ -391,4 +394,5 @@ if __name__ == "__main__":
     raise SystemExit(kit.run_case(
         "guild_donate", "战队捐献（金币 2000 / 钻石 50，各 3 次/日）", run,
         plan=PLAN, prefix="guild_", lock_ttl=300, th=TH,
+        default_max=3,     # 默认各 3 次/日(2026-10-11 修: 旧默认 1 只捐一次金币, 钻石不碰)
     ))

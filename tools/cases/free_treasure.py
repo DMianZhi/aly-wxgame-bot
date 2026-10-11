@@ -201,13 +201,13 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
         return False
     if sc.dry:
         log("[dry] 计划: 上拖露卡 → 逐个免费 icon → 广告 → 金色宝箱开箱 → 领取 × 最多 "
-            f"{max(1, args.max)} 个")
+            f"{max(1, args.max or 1)} 个")
         return True
 
     reveal_cards(sc)
 
     consumed: list[int] = []
-    for _ in range(max(1, args.max)):
+    for _ in range(max(1, args.max or 1)):
         hits = [h for h in sc.find_all("treasure_free", th=TH_ICON)
                 if all(abs(h[0] - cx) >= 40 for cx in consumed)]
         if not hits:

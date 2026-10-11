@@ -110,7 +110,7 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
         sc.shot("star_fail_nav")
         return False
     done = 0
-    for _ in range(max(1, args.max)):
+    for _ in range(max(1, args.max or 1)):
         if one_claim(sc):
             done += 1
         else:

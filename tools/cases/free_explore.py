@@ -122,7 +122,7 @@ def close_panels(sc: kit.Screen) -> bool:
 
 
 def run(sc: kit.Screen, args: kit.Args) -> bool:
-    rounds = max(1, args.max)
+    rounds = max(1, args.max or 1)
     log(f"计划 {rounds} 轮")
 
     if sc.find("star_explore") is None:

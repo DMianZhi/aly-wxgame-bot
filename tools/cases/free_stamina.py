@@ -165,7 +165,7 @@ def one_round(sc: kit.Screen, idx: int) -> bool:
 
 
 def run(sc: kit.Screen, args: kit.Args) -> bool:
-    rounds = min(max(1, args.max), MAX_ROUNDS)
+    rounds = min(max(1, args.max or 1), MAX_ROUNDS)
     if sc.dry:
         entry = sc.find("stamina_entry")
         log(f"[dry] 计划: 体力入口({'已找到' if entry else '当前页未找到'}) → 免费 → "

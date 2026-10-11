@@ -575,7 +575,7 @@ def claim_if_present(sc: Screen, *, th: float = TH_STRICT) -> bool:
 @dataclass
 class Args:
     dry: bool = False
-    max: int = 1                 # 最多做几次（免费资源一轮只有 1 次）
+    max: int | None = None       # 最多做几次(None=未指定 → n_times 用各用例的 default)
     times: int | None = None     # 显式次数（覆盖 max，用于可多次的用例）
     all: bool = False            # 做到次数用尽
     type: str | None = None      # 目标类型（如 guild_donate 的 gold/diamond/both）
@@ -586,7 +586,12 @@ class Args:
     extra: dict = field(default_factory=dict)
 
     def n_times(self, default: int = 1) -> int:
-        """实际执行次数：--all 由用例给出上限，--times 优先于 --max。"""
+        """实际执行次数：--all 由用例给出上限，--times 优先于 --max。
+
+        ⚠ default 只有在 max/times 都未指定时才生效 —— 2026-10-11 修复:
+        旧版 max 硬默认 1, `self.max or default` 里 default 永远轮不到,
+        guild_donate 的「默认各 3 次」因此实际只捐 1 次。
+        """
         if self.times is not None:
             return self.times
         return self.max or default
@@ -594,7 +599,7 @@ class Args:
 
 CORE_FLAGS = {
     "--dry": "只识别/演练，不点击（零副作用）",
-    "--max": "最多做几次（默认 1）",
+    "--max": "最多做几次（默认 1，或用例自定默认）",
     "--times": "显式指定次数（优先于 --max）",
     "--all": "做到次数用尽",
     "--type": "目标类型（用例自定义，如 gold/diamond/both）",
