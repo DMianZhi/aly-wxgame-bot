@@ -1,17 +1,19 @@
 #!/usr/bin/env python
 """用例: 寻宝（两张宝箱卡的免费广告各领一次）。
 
-链路:
+链路(2026-10-11 改版):
     首页 → 寻宝(nav_treasure，默认 tab 就是寻宝) → 页面上拖露出完整卡片
     → 两张卡的免费 icon(treasure_free，美术一致 → 多命中检测) → 逐个:
          点免费 icon → 广告(ad_rewarded ≥0.93 才算播完) → 关广告
-         → 开箱动画(动画不会自己推进，需点中缝推进点) → claim_btn 领取
+         → 卡上出现**金色宝箱 → 点宝箱开箱**(用户实测: 改版后要点击宝箱才算领取完毕,
+           旧版的开箱动画+中缝推进点已废) → claim_btn 领取
     → 领取成功的判据: 该位置的免费 icon **消失**(次数 -1)
 
     ⚠ 广告播放期全屏盖住整页，且 ad_close 可能检不到(<0.85) → 页面标志
       treasure_help 不在 ⇒ 广告中，**绝不点屏幕**(否则会点到广告内容)
     ⚠ 两卡 icon 美术一致，单模板多命中 + NMS(涂黑重找)；命中按 x 升序，x<406 为左卡
-    ⚠ 开箱动画停在中间等点击(实测不自走) → 点两卡之间空档 (406,1040)，最多 4 次
+    ⚠ 金色宝箱用**金色像素 bbox** 定位(实测 818x1507 帧: bbox x306-618 / y1007-1208,
+      金色 ~3500px)，不依赖模板; 点击后 ~2s 内弹「恭喜获得」
 
 用法:
     uv run python tools/cases/free_treasure.py [--max=2] [--dry]
@@ -26,23 +28,50 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from wb import bot as _bot  # noqa: E402
 from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
+import numpy as np  # noqa: E402
 
 TH = 0.85               # 通用阈值
 TH_ICON = 0.88          # 免费 icon(多命中): 0.88 时正好 2 个命中、无幻影
 TH_REWARDED = 0.93      # 广告「已获得奖励」——低于此是播放中的假命中，不许关广告
 FLOW_TIMEOUT = 150      # 单个宝箱(广告+开箱+领取)总超时
-# 当年在 812x1518 实帧上量的坐标 → 归一到基准(见 bot.client_to_ref)，
-# 点击时再 click_base 换到当时的窗口: 812(主流)往返恒等，601/845 才算得准。
-POKE_XY = _bot.client_to_ref(406, 1040, 812, 1518)   # 开箱动画推进点: 两卡之间的空档(页面静止时点这里无副作用)
+# 金色宝箱检测区(2026-10-11 在 818x1507 实帧量得): 宝箱出现在卡带下方 y1007-1208。
+# 判据见 find_chest(数量区间 + bbox 宽度双条件, 防正常卡插画/兑换页金色钮误报)。
+CHEST_Y0, CHEST_Y1 = 950, 1300
 
 PLAN = """[dry] 计划:
   首页 --(nav_treasure 寻宝)--> 寻宝页 --(上拖)--> 露出两张宝箱卡
   --> 逐个免费 icon(treasure_free，两卡美术一致→多命中检测):
         点免费 → 广告(ad_rewarded≥0.93 才算播完) → 关广告
-        → 开箱动画(点中缝 (406,1040) 推进，动画不自走) → claim_btn 领取
+        → 卡上出现金色宝箱 → 点宝箱开箱 → claim_btn 领取(2026-10-11 改版流程)
   --> 成功判据: 该位置免费 icon 消失(次数 -1)；最多 2 个
   ⚠ 广告播放期全屏遮住页面且 ad_close 可能检不到 → 判页面标志，广告中绝不点屏幕
   ⚠ x<406 为左卡(装备宝箱)，否则右卡(高级装备宝箱)"""
+
+
+def find_chest(sc: kit.Screen) -> tuple[int, int] | None:
+    """金色宝箱(改版流程): 关广告后卡上出现, 点它才开箱发奖。
+
+    金色像素 bbox 定位(不依赖模板), 双条件判「宝箱特写在场」:
+      ① 金色(px) ∈ [500, 15000] —— 宝箱 ~7400; 正常寻宝页卡插画 ~33000(超上限拒绝)
+      ② bbox 宽 < 450 —— 宝箱特写居中 ~312 宽; 兑换页金色钮 ~7457px 但宽 658(靠此挡住)
+    实测(818x1507): 宝箱 bbox x306-618 / y1007-1208。
+    """
+    img = sc.grab()
+    sub = img[CHEST_Y0:CHEST_Y1, :]
+    b = sub[..., 0].astype(int)
+    g = sub[..., 1].astype(int)
+    r = sub[..., 2].astype(int)
+    gold = (r > 150) & (g > 110) & (b < 110)
+    n = int(gold.sum())
+    if not (500 <= n <= 15000):
+        return None
+    xs = np.where(gold.sum(axis=0) > 2)[0]
+    ys = np.where(gold.sum(axis=1) > 2)[0]
+    if int(xs.max() - xs.min()) >= 450:
+        return None
+    cx = int((int(xs.min()) + int(xs.max())) // 2)
+    cy = int(ys.min() + ys.max()) // 2 + CHEST_Y0
+    return (cx, cy)
 
 
 def page_ready(sc: kit.Screen) -> bool:
@@ -108,14 +137,13 @@ def drain_claim(sc: kit.Screen, x0: int, timeout: float = 14.0) -> bool:
 
 
 def one_chest(sc: kit.Screen, hit, label: str) -> bool:
-    """点一个宝箱的免费 icon → 广告 → 开箱动画 → 领取。"""
+    """点一个宝箱的免费 icon → 广告 → 金色宝箱开箱 → 领取(2026-10-11 改版流程)。"""
     x0 = hit[0]
     log(f"=== {label} 免费寻宝 (icon at {x0},{hit[1]} score={hit[2]:.3f}) ===")
     sc.click(hit, f"{label}·免费广告icon")
     t0 = kit.time.time()
-    last_poke = 0.0
-    pokes = 0
     ad_seen = False
+    chest = None
     while kit.time.time() - t0 < FLOW_TIMEOUT:
         st = sc.look("jump_no", "claim_btn", "ad_rewarded", "ad_close", "treasure_help")
         jno, cbtn, adr, adc = st["jump_no"], st["claim_btn"], st["ad_rewarded"], st["ad_close"]
@@ -151,12 +179,14 @@ def one_chest(sc: kit.Screen, hit, label: str) -> bool:
                 log("[warn] 广告已 >60s 仍未出现「已获得奖励」，继续等")
             kit.nap(2.0)
             continue
-        # 页面可见且无弹窗: 开箱动画停在中间等点击(实测动画不会自己推进)
-        if not ad_seen and kit.time.time() - t0 > 9 and pokes < 4 \
-                and kit.time.time() - last_poke > 4:
-            sc.click_base(POKE_XY[0], POKE_XY[1], f"开箱动画推进点(第 {pokes + 1} 次)")
-            last_poke = kit.time.time()
-            pokes += 1
+        # 广告已关、寻宝页回来了 → 改版流程: 卡上出现**金色宝箱**, 点它开箱
+        if ad_seen and page:
+            chest = chest or find_chest(sc)
+            if chest is not None:
+                log(f"金色宝箱出现 ({chest[0]},{chest[1]}) → 点击开箱")
+                sc.click_at(chest[0], chest[1], "宝箱(开箱)")
+                kit.nap(2.0)
+                continue
         kit.nap(2.0)
 
     log(f"{label} 流程超时")
@@ -170,7 +200,7 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
         sc.shot("fail_nav")
         return False
     if sc.dry:
-        log("[dry] 计划: 上拖露卡 → 逐个免费 icon → 广告 → 开箱动画(点中缝) → 领取 × 最多 "
+        log("[dry] 计划: 上拖露卡 → 逐个免费 icon → 广告 → 金色宝箱开箱 → 领取 × 最多 "
             f"{max(1, args.max)} 个")
         return True
 
