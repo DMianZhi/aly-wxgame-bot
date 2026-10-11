@@ -481,6 +481,8 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
     2026-10-10 补 nav_home 回退: 寻宝 hub 等页**没有** ral_back(只有「回首页」直达键)
     → 旧版回不去、游戏被留在半路，下一个用例起点错乱(free_rally/ free_treasure 全被
     连累)。ral_back 找不到就试 nav_home(子页 0.975+, 首页标志 stage_btn 已先行拦截)。
+    2026-10-11: 找不到返回键不再立即放弃 —— 领取/转场动画期间所有键都检不到
+    (claim_reward 收尾实测: 2s 后页面自己就回首页了) → 等一拍再找, 连续找不到才停手。
     """
     for i in range(tries):
         if is_home(sc):
@@ -494,8 +496,11 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
             return True
         back = sc.find(BACK_KEY) or sc.find(HOME_NAV, 0.90)
         if back is None:
-            log("[warn] 找不到返回键，停手（请手动回首页）")
-            return False
+            if i >= tries - 1:
+                log("[warn] 找不到返回键，停手（请手动回首页）")
+                return False
+            time.sleep(wait)
+            continue
         sc.click(back, f"返回(第{i + 1}次)")
         time.sleep(wait)
     return is_home(sc)
