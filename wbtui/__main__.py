@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
+from rich.live import Live
 from rich.prompt import Confirm
 
 from wb import registry
