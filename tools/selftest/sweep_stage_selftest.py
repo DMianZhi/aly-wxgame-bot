@@ -13,13 +13,14 @@
     ① 模式识别/切换（normal ↔ hero 的 label 互斥，已实测无交叉误命中）
     ② 导航: 首页→关卡页→扫荡面板
     ③ 4星页签: 已选中=零点击 / 未选中=点「页签栏中心+20px」后再确认
-    ④ 材料最少优先: 默认 idx=1 → 点第 1 个图标(812 下(156,345))；--material=0 → 零点击
+    ④ 材料最少优先: 默认 idx=1 → 点第 1 个图标(812 下(178,429))；--material=0 → 零点击
     ⑤ 单轮成功: 扫荡 → 双倍奖励 → 跳过卡弹窗选「不使用」→ 广告看完关掉 → 关结算弹层
     ⑥ 无翻倍机会 → 换下一关（no_double，不误判成完成）
     ⑦ 连续 3 关无翻倍 → 收工（不空转到 N 轮）
     ⑧ 背包已满 → 清理后重进面板 → 本轮照常完成
     ⑨ 面板被误关 → ensure_context 复查并重进
     ⑩ dry 零点击零写盘；⑪ 并发锁互斥；⑫ 小窗口(601x1143)下基准坐标必须换算
+    ⑬ 换皮广告（深蓝底原生浮层）被 ad_close/ad_rewarded 的 _v3 变体命中
 
 已知缺口（诚实标注）:
     「4星页签未选中」没有真帧（tabbar 模板只截过选中态），场景 ③b 用桩让 tab4 首次检查落空，
@@ -45,6 +46,8 @@ from tools.cases import sweep_stage as sw  # noqa: E402
 HOME = "_guildtest_home.png"                     # 真帧: 首页
 STAGE_PAGE = "snap_20261008_091133.png"          # 真帧: 关卡页(只有 stage_sweep)
 BAGFULL = "_diag_now.png"                        # 真帧: 扫荡面板 + 背包已满弹窗
+AD_QWEN = "_qwen_ad_native.png"                 # 真帧: 换皮广告（深蓝底原生浮层，已获得奖励态）
+MCOUNT_REAL = "_ts_sweep_mcount.png"            # 合成帧: 真数字条带(gmc_2=273/289/268/304 → 最少=第 3)
 
 # 合成面板帧（深底 + 真模板）
 BR, BH = 400, 140          # 页签栏中心
@@ -66,7 +69,9 @@ ADCLOSE_XY = (700, 300)
 C_STAGE_BTN = (620, 1383)               # stage_btn@首页
 C_STAGE_SWEEP = (80, 1333)              # stage_sweep@关卡页（2026-10-09 模板只裁按钮本体 143x62
                                         #   → 中心由 93 左移到 80，落点仍在按钮面内 25..150）
-MAT1 = (156, 345)                       # MAT_ICONS[0] 在 RECT=812x1518 下的实际落点(= 实帧量得的原值)
+MAT1 = (178, 429)                       # MAT_ICONS[0] 在 RECT=812x1518 下的落点
+                                        # (2026-10-11 重测：材料图标行下移到 y=429；
+                                        #  旧值 (156,345) 已落在「3星/4星/5星材料」页签栏上)
 
 
 def _sc(dry: bool = False) -> kit.Screen:
@@ -133,6 +138,15 @@ def ensure_fixtures() -> bool:
         cv2.imwrite(str(SHOTS_DIR / AD_DONE),
                     _paste(_paste(_blank(), "ad_rewarded", 400, 200), "ad_close", *ADCLOSE_XY))
         made.append(AD_DONE)
+    if need(MCOUNT_REAL):                        # 真数字条带贴进合成帧 → 验 auto 选材料全链路
+        strip = cv2.imread(str(SHOTS_DIR / "gmc_2.png"))
+        if strip is None:
+            print("[SKIP] 缺材料计数条带夹具 gmc_2.png")
+            return False
+        img = _blank()
+        img[437:481, :] = cv2.resize(strip, (812, 44), interpolation=cv2.INTER_AREA)
+        cv2.imwrite(str(SHOTS_DIR / MCOUNT_REAL), img)
+        made.append(MCOUNT_REAL)
     if made:
         print(f"[生成] 合成面板夹具 {', '.join(made)}（深底 + 真模板）")
     return True
@@ -198,16 +212,43 @@ def case_tab4_unselected(rp):
 
 
 def case_material_least(rp):
-    """④ 材料最少优先: 默认 idx=1 → 点第 1 个图标。"""
+    """④ 材料指定 #1: --material=1 → 点第 1 个图标（人工覆盖路径）。"""
     sw.select_material(_sc(), 1)
     clicks_ok = st.check_clicks("材料#1", rp.real_clicks, [MAT1])
-    return clicks_ok, f"点击={rp.real_clicks}(期望 {MAT1} = 面板顶部计数最少的那个)"
+    return clicks_ok, f"点击={rp.real_clicks}(期望 {MAT1} = --material=1 的第 1 个图标)"
 
 
-# 同一基准点(172,346 = 812 实帧 (156,345) 归一来的) 在 601x1143 窗口下的落点。
-# 手算: s=(1143-77)/1444=0.738227; x=(172-422.5)*s+300.5=115.6→116; y=77+(346-77)*s=275.6→276
-# 不换算就是 (156,345) —— 偏 40px，tol=6 必抓。
-C_MAT1_601 = (116, 276)
+def case_material_auto(rp):
+    """④a 材料最少优先: --material=auto(默认) 读 4 个计数 → 点计数最少的第 3 个。
+
+    基准帧真值 273/289/268/304 → 最少是第 3 个（旧假设「第 1 个最少」会点错）。
+    """
+    ok = sw.select_material(_sc(), "auto")
+    exp = _bot.ref_to_client(*sw.MAT_ICONS[2], st.RECT[2], st.RECT[3])
+    clicks_ok = st.check_clicks("材料#auto", rp.real_clicks, [exp])
+    return ok and clicks_ok, (f"点击={rp.real_clicks}(期望 {exp} = 读数 273/289/268/304 → 第 3 个最少)")
+
+
+def case_mcount_read(rp):
+    """④c 材料计数读数: 5 帧真值条带 → read_row 全对（金底描边数字 = 第 4 套字形）。"""
+    from wb import mcount
+    tpls = mcount.load_templates()
+    if not tpls:
+        return False, "没有数字模板（先跑 tools/maint/build_mcount_digits.py）"
+    bad = []
+    for name, truth in mcount.GOLDEN:
+        band = cv2.imread(str(SHOTS_DIR / name))
+        if band is None:
+            return None, f"缺条带夹具 {name}"
+        got = [mcount.read_badge(band, xc, tpls) for xc in mcount.ICON_XS]
+        if tuple(got) != tuple(truth):
+            bad.append(f"{name}:{got}!={list(truth)}")
+    n = len(mcount.GOLDEN)
+    return not bad, (f"{n} 帧真值读数全对" if not bad else " ".join(bad))
+
+
+# 同一基准点(现为 812 实帧的 (178,429) 归一来的) 在 601x1143 窗口下的落点。
+C_MAT1_601 = (130, 339)
 
 
 def case_small_window(rp):
@@ -303,13 +344,35 @@ def case_lock(rp):
     return good, f"首锁={g1} 二锁={g2}(期望 False) 释放后可拿={g3}"
 
 
+def case_ad_newstyle(rp):
+    """⑬ 换皮广告（深蓝底）能被 ad_close / ad_rewarded 变体命中。
+
+    2026-10-11 踩坑: 千问广告把「关闭 / 已获得奖励」底色从纯黑换成深蓝, 旧模板（黑底）
+    全部失效 → handle_ad 等满 100s 超时 → 用例卡死在广告页（实测确认）。修法 = 补 _v3
+    变体（广告是**原生浮层**、按固定像素渲染，匹配走 `_resize_candidates` 的原生候选⑤）。
+    """
+    f = SHOTS_DIR / AD_QWEN
+    if not f.is_file():
+        return None, f"缺真帧夹具 {AD_QWEN}"
+    img = cv2.imread(str(f))
+    det, ok = [], True
+    for name in ("ad_rewarded", "ad_close"):
+        t = cv2.imread(str(TEMPLATE_PATH(name + "_v3")))
+        h = _bot.match_adaptive(img, t, 0.93) if t is not None else None
+        det.append(f"{name}_v3={h[2]:.2f}" if h else f"{name}_v3=MISS")
+        ok = ok and h is not None
+    return ok, " ".join(det)
+
+
 SCENES = [
     ("模式识别/切换", [P_HERO, P_NORMAL], case_mode),
     ("导航: 首页→关卡页→扫荡面板", [HOME, STAGE_PAGE, P_NORMAL], case_nav),
     ("4星页签已选中(零点击)", [P_NORMAL], case_tab4_selected),
     ("4星页签未选中(点中心+20，桩)", [P_NORMAL], case_tab4_unselected),
-    ("材料最少优先(默认 #1)", [P_NORMAL], case_material_least),
+    ("材料最少(auto 读计数→第 3 个)", [MCOUNT_REAL], case_material_auto),
+    ("材料指定 #1(--material=1)", [P_NORMAL], case_material_least),
     ("材料全部(--material=0 零点击)", [P_NORMAL], case_material_all),
+    ("材料计数读数(5 帧真值条带)", [MCOUNT_REAL], case_mcount_read),
     ("小窗口(601x1143)基准坐标换算", [P_NORMAL], case_small_window),
     ("单轮成功(双倍+跳过卡不使用+关弹层)", [P_BTN, P_DOUBLE, AD_JUMPNO, AD_DONE, P_NORMAL],
      case_round_ok),
@@ -317,6 +380,7 @@ SCENES = [
     ("连续 3 关无翻倍 → 收工", [P_BTN] * 6 + [P_NORMAL] * 2, case_phase_stop),
     ("背包已满 → 清理后重进(桩)", [BAGFULL, P_BTN, P_DOUBLE, AD_DONE, P_NORMAL], case_bagfull),
     ("面板被误关 → 复查重进", [HOME, P_NORMAL], case_panel_lost),
+    ("换皮广告被新变体命中", [AD_QWEN], case_ad_newstyle),
     ("dry 零点击零写盘", [P_NORMAL], case_dry),
     ("并发锁互斥", [P_NORMAL], case_lock),
 ]

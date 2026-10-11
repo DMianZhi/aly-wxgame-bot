@@ -7,8 +7,13 @@
     --> 点最上面的可用行「扫荡」(sweep_btn) --> 「双倍奖励」(sweep_double)
     --> 看广告(ad_rewarded 出现才关) --> 关「扫荡完成」弹层(点空白) --> 下一轮
 
-    ⚠ 面板顶部 4 个材料图标**按计数升序**(实测 711<763<810<831) → 默认点第 1 个(材料最少)，
-      --material=N 指定，--material=0 保持「全部」
+    ⚠ 面板顶部 4 个材料图标 —— 旧前提「按计数升序，点第 1 个=最少」**2026-10-11 实测已
+      不成立**(273/289/268/304 非升序) → 已改为**直接读 4 个计数取真正最小值**
+      (wb/mcount.py，金底描边数字第 4 套字形)。默认 --material=auto；
+      --material=0 保持「全部」，--material=1..4 人工指定。读不出时退化为「全部」。
+    ⚠ 材料图标行紧贴页签栏下方：旧坐标 y=345 已失效（它现在**正落在**「3星/4星/5星材料」
+      页签栏上，select_material 盲点会把刚选好的 4星 又切成 3星）→ 已重测为 y=429，
+      且先 client_to_ref 归一；选完材料再复查一次页签。
     ⚠ 「双倍奖励」是**每关每日限次** → 某关没翻倍机会时**换下一关继续**，
       连续 3 关都没有才收工（额度耗尽当天验不满是正常的，先看额度再判脚本好坏）
     ⚠ 关结算弹层点空白可能**连带关掉整个面板** → 每轮开跑前 ensure_context 复查并重进
@@ -16,7 +21,7 @@
     ⚠ 4星材料「已选中」态阈值须 ≥0.95（3星 会误匹配到 0.942）
 
 用法:
-    uv run python tools/cases/sweep_stage.py [--max N] [--material N] [--dry]
+    uv run python tools/cases/sweep_stage.py [--max N] [--material auto|0|1-4] [--dry]
 """
 from __future__ import annotations
 
@@ -30,12 +35,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wb import bot as _bot  # noqa: E402
 from wb import kit  # noqa: E402
+from wb import mcount  # noqa: E402
 from wb.kit import log  # noqa: E402
 from tools.maint.clear_bag import clear_if_full  # noqa: E402   # 背包满自动清理
 
-MAT_ICONS = [_bot.client_to_ref(x, 345, 812, 1518) for x in (156, 299, 440, 582)]
-# ↑ 当年在 812x1518 实帧上量的坐标, 先归一成基准口径(见 bot.client_to_ref),
-#   点击时再由 click_base 换到当时的窗口 —— 812(主流尺寸)往返恒等, 601/845 才算得准。
+MAT_ICONS = [_bot.client_to_ref(x, 429, 814, 1507) for x in (178, 299, 420, 541)]
+# ↑ 2026-10-11 在 814x1507 实帧重测（旧值 y=345 已失效！那时材料图标行在 y=345，
+#   但现在 y=345 正落在「3星/4星/5星材料」**页签栏**上 → select_material 的盲点会
+#   点中「3星材料」页签，把刚选好的 4星 又切回 3星，整轮扫成 3星（用户实测反馈的 bug）。
+#   图标行实际中心 y=429，x 因新增「全部」按钮整体左移：178/299/420/541（绿色方框实测）。
+#   先 client_to_ref 归一成基准口径，点击时再由 click_base 换到当时的窗口。
+# 选哪个图标：旧做法「点第 1 个(假设计数最少)」已废 → 现由 wb/mcount.py 读 4 个计数取最小。
 TH = 0.88            # 通用
 SWEEP_TH = 0.93      # 「扫荡」按钮（橙色，只有可用/未耗尽的行才会命中）
 TOGGLE_TH = 0.93     # 切换器 label
@@ -58,7 +68,7 @@ PLAN = """[dry] 计划:
   首页 --(stage_btn 闯关模式)--> 关卡页 --(stage_sweep 快速扫荡)--> 扫荡面板
   --> 切模式: sweep_to_hero(切英雄) / sweep_to_normal(切普通)
   --> 普通模式选「4星材料」页签(sweep_tab4 / 点页签栏中心+20px)
-  --> 选材料类型: 面板顶部 4 图标按计数升序 → 默认点第 1 个(材料最少) [--material=N / 0=全部]
+  --> 选材料类型: 读面板顶部 4 个计数 → 点计数最少的那个 [--material=auto 默认 / 0=全部 / 1..4=指定]
   --> 点最上面可用行「扫荡」(sweep_btn, 阈值 0.93)
   --> 「双倍奖励」(sweep_double) → 看广告(jump_no 不使用跳过卡 → ad_rewarded 才关)
   --> 关「扫荡完成」弹层(点空白 420,620)  ← 可能连带关掉面板 → 下轮 ensure_context 复查重进
@@ -190,7 +200,13 @@ def select_tab4(sc: kit.Screen) -> bool:
 
 
 def handle_ad(sc: kit.Screen, timeout: float = 100.0) -> bool:
-    """等广告看完（ad_rewarded 出现）再关。遇跳过卡弹窗选「不使用」不消耗道具。"""
+    """等广告看完（ad_rewarded 出现）再关。遇跳过卡弹窗选「不使用」不消耗道具。
+
+    广告是微信**原生浮层**（按固定像素渲染，不随游戏画布缩放），且不同广告商会换皮
+    → 模板走变体匹配（ad_close / _v2 / _v3…，任一变体命中即可）。若所有变体都
+    命中不了（又换皮，实测 2026-10-11 千问广告就是黑底→深蓝底换皮），
+    「关闭」按钮仍在**右上角固定像素位** → 兑底盲点该位置并复查是否已回到游戏。
+    """
     end = kit.time.time() + timeout
     while kit.time.time() < end:
         hit = sc.find("jump_no", AD_TH)
@@ -202,11 +218,23 @@ def handle_ad(sc: kit.Screen, timeout: float = 100.0) -> bool:
             close = sc.find("ad_close", 0.93)
             if close is not None:
                 sc.click(close, "关闭广告")
+            else:
+                sc.click_at(sc.w - 55, 125, "关闭广告(右上固定位兑底)")
+            kit.nap(1.5)
+            if sc.find("ad_rewarded", AD_TH) is None:
                 return True
         if sc.dry:
             return False
         kit.nap(2.0)
     log("广告等待超时")
+    # 超时兑底：所有变体都没命中（广告又换皮）时，盲点右上角关闭位，复查是否已回到游戏
+    for _ in range(2):
+        sc.click_at(sc.w - 55, 125, "广告超时兑底→右上关闭")
+        kit.nap(1.5)
+        if (sc.find("sweep_close", 0.93) is not None
+                or sc.find("sweep_done", DONE_TH) is not None):
+            log("兑底关闭广告成功（已回到游戏）")
+            return True
     return False
 
 
@@ -222,17 +250,38 @@ def close_overlay(sc: kit.Screen) -> bool:
     return ok
 
 
-def select_material(sc: kit.Screen, idx: int) -> bool:
-    """选材料类型(优先扫材料最少的那个)。
+def select_material(sc: kit.Screen, mat) -> bool:
+    """选材料类型。
 
-    面板顶部 4 个图标按计数升序排列(实测 711<763<810<831)，故默认 idx=1 = 最少。
-    若某日不是升序，用 --material=N 指定，或 --material=0 保持「全部」。
+    mat: "auto"(默认) = 读面板顶部 4 个计数取**真正最少**的那个；
+         0 = 保持「全部」；1..4 = 直接指定图标序号(留给人工覆盖)。
+    读不出（无模板/取帧失败/字形认不出）时**退化为「全部」**（安全：全扫不掉料），
+    不再回退到旧假设「第 1 个最少」（以 2026-10-11 实测已证不成立）。
     """
+    idx = None
+    if mat in (None, "", "auto"):
+        if sc.dry:
+            return True
+        frame = None
+        try:
+            frame = sc.grab()
+        except Exception:  # noqa: BLE001  取帧失败不该中断用例
+            frame = None
+        if frame is not None:
+            counts = mcount.read_row(frame)
+            idx = mcount.argmin_material(frame)
+            log(f"材料计数 {counts} → 最少的是第 {idx} 个" if idx else
+                f"材料计数读不出({counts}) → 退化为「全部」")
+        else:
+            log("取帧失败 → 材料筛选退化为「全部」")
+    else:
+        idx = int(mat or 0)
+
     if not idx or idx < 1:
         log("材料筛选: 保持全部")
         return True
     x, y = MAT_ICONS[min(idx, 4) - 1]
-    log(f"选材料类型 #{idx} (材料最少的那个) ({x},{y})")
+    log(f"选材料类型 #{idx}（计数最少）({x},{y})")
     sc.click_base(x, y, f"材料类型#{idx}")
     kit.nap(2.0)
     return True
@@ -286,7 +335,7 @@ def close_panel(sc: kit.Screen) -> None:
     log(f"收尾关面板 → {sc.find('sweep_close', 0.93) is None}")
 
 
-def ensure_context(sc: kit.Screen, mode: str, mat: int) -> bool:
+def ensure_context(sc: kit.Screen, mode: str, mat) -> bool:
     """确保身处「快速扫荡」面板，且模式 / 材料筛选都对。
 
     面板会被误关(点弹层空白可能连带关掉面板)，所以每轮开跑前都要确认一次。
@@ -301,10 +350,13 @@ def ensure_context(sc: kit.Screen, mode: str, mat: int) -> bool:
     if mode == "normal" and not select_tab4(sc):
         sc.shot("sweep_stage_tab4_fail")
     select_material(sc, mat)
+    # 材料图标行紧贴页签栏正下方，盲点若有偏差会落到页签上把 4星 切走 → 选完再复查一次
+    if mode == "normal":
+        select_tab4(sc)
     return True
 
 
-def run_phase(sc: kit.Screen, mode: str, n: int, mat: int) -> dict:
+def run_phase(sc: kit.Screen, mode: str, n: int, mat) -> dict:
     log(f"===== {mode} 模式 ×{n} =====")
     stat: dict[str, int] = {}
     if not ensure_context(sc, mode, mat):
@@ -336,7 +388,7 @@ def run_phase(sc: kit.Screen, mode: str, n: int, mat: int) -> dict:
 
 def run(sc: kit.Screen, args: kit.Args) -> bool:
     n = args.n_times(5)
-    mat = int(args.extra.get("material", 1))
+    mat = args.extra.get("material", "auto")
 
     if sc.dry:
         log("== 侦查模式 ==")
@@ -346,8 +398,8 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
                          ("sweep_to_hero", TOGGLE_TH), ("sweep_to_normal", TOGGLE_TH),
                          ("sweep_btn", SWEEP_TH), ("sweep_done", DONE_TH)):
             log(f"  {name:16s} {sc.find(name, th)}")
-        log(f"[dry] 计划: 普通 ×{n} + 英雄 ×{n}，材料筛选 #{mat or '全部'}"
-            f"（默认 1 = 面板顶部计数最少的那个）")
+        log(f"[dry] 计划: 普通 ×{n} + 英雄 ×{n}，材料筛选 {mat}"
+            f"（auto = 读 4 个计数取真正最少；0 = 全部；1..4 = 指定）")
         log("[dry] 会留证截图 sweep_stage_dry（dry 不写盘）")
         return True
 
