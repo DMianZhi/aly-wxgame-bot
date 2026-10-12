@@ -37,7 +37,7 @@ from wb import bot as _bot  # noqa: E402
 from wb import kit  # noqa: E402
 from wb import mcount  # noqa: E402
 from wb.kit import log  # noqa: E402
-from tools.maint.clear_bag import clear_if_full  # noqa: E402   # 背包满自动清理
+from tools.cases.clear_bag import clear_if_full  # noqa: E402   # 背包满自动清理
 
 MAT_ICONS = [_bot.client_to_ref(x, 429, 814, 1507) for x in (178, 299, 420, 541)]
 # ↑ 2026-10-11 在 814x1507 实帧重测（旧值 y=345 已失效！那时材料图标行在 y=345，

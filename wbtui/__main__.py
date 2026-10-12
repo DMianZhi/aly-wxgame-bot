@@ -41,11 +41,6 @@ def _daily():
     return registry.by_group(registry.DAILY)
 
 
-def _maint():
-    """维护工具(背包清理/模板体检等) —— 与每日用例同一张勾选清单的第二段。"""
-    return registry.by_group(registry.MAINT)
-
-
 def _open_shots(console: Console) -> None:
     try:
         os.startfile(SHOTS_DIR)     # noqa: S606  仅 Windows 本地使用
@@ -53,12 +48,12 @@ def _open_shots(console: Console) -> None:
         console.print(f"[red]打不开截图目录: {e}[/]")
 
 
-def _menu_keyloop(console: Console, entries, tools) -> list | None:
+def _menu_keyloop(console: Console, entries) -> list | None:
     """按键模式菜单: ↑↓ 移动 / 空格勾选 / a 全选 / Enter 执行勾选 / A 一键全部。
 
-    两段清单: 每日用例 + 维护工具(背包清理等, 2026-10-12 用户要求进列表)。
-    勾选索引跨两段连续(维护工具接着每日用例编号)。
     返回勾选的 Entry 列表(按列表顺序)；q/Esc 返回 None(退出)；Ctrl+C 退出。
+    (2026-10-12: 只列每日用例 —— 维护工具是开发者用的, 不进这个列表;
+     背包清理已归入每日用例, 自然在此列)
 
     渲染用 rich Live(auto_refresh=False) 原位重写 —— 2026-10-11 修闪烁:
     旧版每帧 console.clear() 全量重画, 清屏瞬间黑闪一下; Live 用 ANSI 把光标
@@ -66,17 +61,13 @@ def _menu_keyloop(console: Console, entries, tools) -> list | None:
     """
     from rich.console import Group
 
-    all_e = [*entries, *tools]
     cursor = 0
     selected: set[int] = set()
 
     def render():
-        n = len(entries)
         return Group(
-            view.header_panel(n, tools=len(tools)),
-            view.cases_table(entries, selected=selected, cursor=cursor, first_no=1),
-            view.cases_table(tools, title="维护工具", selected=selected, cursor=cursor,
-                             first_no=n + 1),
+            view.header_panel(len(entries)),
+            view.cases_table(entries, selected=selected, cursor=cursor),
             view.hints(),
         )
 
@@ -88,9 +79,9 @@ def _menu_keyloop(console: Console, entries, tools) -> list | None:
             if ch in (b"\x00", b"\xe0"):            # 功能键 → 读第二个扫描码
                 ch = msvcrt.getch()
                 if ch == KEY_UP:
-                    cursor = (cursor - 1) % len(all_e)
+                    cursor = (cursor - 1) % len(entries)
                 elif ch == KEY_DOWN:
-                    cursor = (cursor + 1) % len(all_e)
+                    cursor = (cursor + 1) % len(entries)
                 else:
                     redraw = False
             elif ch == KEY_CTRL_C:
@@ -101,15 +92,13 @@ def _menu_keyloop(console: Console, entries, tools) -> list | None:
                 else:
                     selected.add(cursor)
             elif ch in (b"a", b"A"):
-                # A 有两义: 无修饰=全选/清空; 但「一键全部」执行只跑**每日用例**
-                # (维护工具是主动维护动作, 混进一键全部会真清背包/体检, 不合预期)
-                if len(selected) >= len(all_e):
+                if len(selected) == len(entries):
                     selected.clear()
                 else:
-                    selected = set(range(len(all_e)))
+                    selected = set(range(len(entries)))
             elif ch == KEY_ENTER:
                 if selected:
-                    return [all_e[i] for i in sorted(selected)]
+                    return [entries[i] for i in sorted(selected)]
                 redraw = False
             elif ch in (b"q", b"Q", KEY_ESC):
                 return None
@@ -167,13 +156,12 @@ def _run_batch(console: Console, entries, *, dry: bool) -> None:
 def main() -> int:
     console = Console()
     entries = _daily()
-    tools = _maint()
     if not entries:
         console.print("[red]注册表里没有每日用例[/]")
         return 1
 
     while True:
-        picked = _menu_keyloop(console, entries, tools)
+        picked = _menu_keyloop(console, entries)
         if picked is None:
             console.print("[dim]再见。[/]")
             return 0

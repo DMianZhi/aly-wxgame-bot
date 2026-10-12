@@ -13,12 +13,10 @@ from rich.text import Text
 CODE_MEAN = {0: "成功", 1: "未达成", 2: "环境问题(没窗口等)", 3: "已有实例在跑", 4: "超时"}
 
 
-def header_panel(n_cases: int, *, tools: int = 0, version: str = "") -> Panel:
+def header_panel(n_cases: int, *, version: str = "") -> Panel:
     t = Text()
     t.append("wxgame-bot", style="bold cyan")
     t.append(f"   每日用例 {n_cases} 个", style="dim")
-    if tools:
-        t.append(f" + 维护工具 {tools} 个", style="dim")
     if version:
         t.append(f"   {version}", style="dim")
     t.append("\n空格勾选 · Enter 执行勾选 · A 全选 · dry 演练零副作用 · 日志实时滚动", style="dim")

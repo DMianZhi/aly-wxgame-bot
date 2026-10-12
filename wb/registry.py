@@ -5,10 +5,10 @@
 不会再出现「加了用例但文档/冒烟清单忘了改」这类漂移。
 
 分组（tools/ 下的四个子目录）
-    daily     23 个每日用例   tools/cases/     —— 一个用例一个文件，失败不互相影响
+    daily     24 个每日用例   tools/cases/     —— 一个用例一个文件，失败不互相影响
     crop      14 个裁剪工具   tools/crop/      —— 改坐标/加模板后重跑即可整页重裁
     selftest  23 个测试       tools/selftest/  —— 22 份离线回放自检 + 冒烟
-    maint      9 个维护工具   tools/maint/     —— 运行期辅助/体检/文档生成
+    maint      8 个维护工具   tools/maint/     —— 运行期辅助/体检/文档生成
 
 字段
     quota  每日额度（"-" 表示不限或非每日）
@@ -45,6 +45,11 @@ def _e(name: str, title: str, group: str, *, quota: str = "-", flags: str = "--d
 
 # --------------------------------------------------------------- 每日用例（14）
 CASES = [
+    _e("clear_bag", "背包清理", DAILY, flags="--dry --force", kit=True,
+       note="⭐ 2026-10-12 归入每日用例(用户要求, 每天例行一次): 默认只检测「背包已满」"
+            "弹窗, 不满=正常收工 code=0; --force 硬清三步。背包满 → 金币去售卖 / "
+            "装备白装循环自动合成(到点不动为止) / 经验合成(魔方取消勾选 + 残骸合成)；"
+            "clear_if_full 已 hook 进 sweep_stage/free_turn(背包满自动清理再重试)"),
     _e("free_stamina", "免费体力", DAILY, quota="4/日", flags="--dry --max=N", kit=True,
        note="点击生效判据=「免费」按钮消失(非页面变化)；弹窗在场不重复点入口；"
             "2026-10-10 美术轮换: 真弹窗 stamina_close 掉到 0.905~0.997 摆动(弹窗内轮播横幅)、"
@@ -321,9 +326,6 @@ MAINT_TOOLS = [
        note="导航到面板后只读判据+取样, **绝不点材料/扫荡/超限挑战**; "
             "sweep_stage=读 4 个材料计数并报真最少(验 --material=auto); "
             "boss_hyper=沿右箭头扫掠报「已击败/超限125%」出击前提"),
-    _e("clear_bag", "背包清理", MAINT, flags="--force",
-       note="背包满 → 金币去售卖 / 装备白装循环自动合成(到点不动为止) / "
-            "经验合成(魔方取消勾选 + 残骸合成)；已 hook 进 sweep_stage"),
     _e("docs", "文档清单生成", MAINT, flags="--check",
        note="按 wb/registry.py 重写 README 的用例清单/结构树（--check 只校验同步）"),
     _e("build_digits", "重建机友加成小字模板", MAINT, flags="--shot x.png --truth ... --skip 930 --dry",

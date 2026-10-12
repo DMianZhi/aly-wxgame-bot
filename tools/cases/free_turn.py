@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
-from tools.maint.clear_bag import clear_if_full  # noqa: E402   # 背包满自动清理
+from tools.cases.clear_bag import clear_if_full  # noqa: E402   # 背包满自动清理
 
 FLOW_TIMEOUT = 90          # 单次抽奖（点击 → 动画 → 领取）总超时
 

@@ -15,13 +15,14 @@
      实测勾选项可能只有 3 个(有一行「数量不足」不参与), 所以取「检测到的第 1 个和
      最后一个」, 而不是写死索引 0/3。
 
-被 sweep_stage / boss_mode 等复用:
-    from clear_bag import clear_if_full
+被 sweep_stage / free_turn 等复用:
+    from tools.cases.clear_bag import clear_if_full
     clear_if_full(rect, log)
 
 用法:
-    uv run python tools/maint/clear_bag.py [--dry] [--force]
-    --force: 不要求出现「背包已满」弹窗, 直接跑三步(维护/验证用)
+    uv run python tools/cases/clear_bag.py [--dry] [--force] [--json]
+    (2026-10-12 起按用户要求归入**每日用例**: 每天 1 次, 默认只检测「背包已满」
+     弹窗, 不满就跳过; --force 硬清三步, 套 kit.run_case 统一契约)
 """
 from __future__ import annotations
 
@@ -34,6 +35,8 @@ sys.path.insert(0, ROOT)
 
 import cv2
 
+from wb import kit  # noqa: E402
+from wb.kit import log  # noqa: E402
 from wb.bot import click_xy, find_game_window, find_in_game, grab_window
 from wb.cfg import CONF
 
@@ -327,5 +330,28 @@ def main() -> None:
         print("当前没有「背包已满」弹窗, 无需清理")
 
 
+PLAN = """[dry] 计划:
+  检测「背包已满」弹窗 → 有: 关弹窗 → 仓库三步(白装合成/矿石出售/经验合成) → 回首页
+                        → 无: 今日背包未满, 无需清理
+  --force: 跳过弹窗检测直接跑三步(维护/验证用)"""
+
+
+def run(sc: kit.Screen, args: kit.Args) -> bool:
+    """每日用例入口(2026-10-12 归入每日用例): 默认只检测, 背包不满=正常收工。"""
+    force = bool(args.extra.get("force"))
+    if sc.dry:
+        log("[dry] 计划: 检测「背包已满」弹窗 → 有则三步清理, 无则跳过"
+            + (" (--force 硬清)" if force else ""))
+        return True
+    did = clear_if_full(sc.rect, log, dry=sc.dry, force=force)
+    if not did:
+        log("背包未满(无「背包已满」弹窗) → 今日无需清理")
+    return True
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(kit.run_case(
+        "clear_bag", "背包清理（背包满则三步: 白装合成/矿石出售/经验合成）", run,
+        plan=PLAN, prefix="cbag_", lock_ttl=600, th=TH,
+        extra=("force",),
+    ))
