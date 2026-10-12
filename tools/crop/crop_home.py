@@ -39,7 +39,10 @@ CROPS = {
     "thunder_rally":   (618, 452, 91, 87, "雷霆集结"),
     "game_circle":     (716, 452, 91, 87, "游戏圈"),
     "truth_pour":      (618, 544, 91, 87, "真理倾泻"),
-    "community_gift":  (716, 544, 91, 87, "社区奖励"),
+    # ⚠ 旧框 (716,544,91,87) 含大片**流动星云背景**与右上**脉动红点徽章** → 实时匹配在
+    #   0.856~0.935 之间晃(有帧跌破 0.86 → 漏检)。2026-10-12 改用**亮部图标核心**
+    #   (礼盒字形, 几乎不含背景): 6 帧真帧留一法最低 0.996, 离开正确槽位后最强撞车仅 0.754。
+    "community_gift":  (742, 552, 48, 40, "社区奖励(礼盒核心, 避开背景动画与红点)"),
     # 避开右上角脉冲红点徽章与外圈光效
     "login_reward":    (723, 666, 74, 60, "累计登录(签到用)"),
     "holiday_welfare": (723, 768, 74, 60, "假日福利"),
@@ -52,8 +55,30 @@ CROPS = {
 
 
 def main() -> int:
-    shot = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SHOT
-    return run_crop(CROPS, tag="home", shot=shot)
+    """用法: crop_home.py [shot.png] [--only=name1,name2]
+
+    --only 只重裁指定模板(tag 带 _only 后缀, 不覆盖全量蒙太奇/CSV) —— 避免为改一张
+    模板而把其余 22 张一起重裁(首页常有脉动徽章/光效, 全量重裁会引入新噪声)。
+    """
+    argv = sys.argv[1:]
+    only: set[str] | None = None
+    shots: list[str] = []
+    for a in argv:
+        if a.startswith("--only="):
+            only = {n.strip() for n in a.split("=", 1)[1].split(",") if n.strip()}
+        elif not a.startswith("--"):
+            shots.append(a)
+    crops = dict(CROPS)
+    tag = "home"
+    if only:
+        unknown = only - set(CROPS)
+        if unknown:
+            raise SystemExit(f"--only 里有未知模板: {sorted(unknown)}")
+        crops = {n: v for n, v in CROPS.items() if n in only}
+        tag = "home_only"
+        print(f"[--only] 只重裁 {len(crops)} 张: {', '.join(crops)}")
+    shot = shots[0] if shots else DEFAULT_SHOT
+    return run_crop(crops, tag=tag, shot=shot)
 
 
 if __name__ == "__main__":

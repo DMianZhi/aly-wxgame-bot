@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes  # noqa: F401  确保 ctypes.wintypes 可用
+from ctypes import wintypes
 import random
 import sys
 import time
@@ -436,6 +437,39 @@ def _point_on_game(rect: WinRect, sx: int, sy: int) -> bool:
         return False
     root = user32.GetAncestor(win, 2)               # GA_ROOT
     return bool(root) and root == rect.hwnd
+
+
+def wheel_xy(cx: int, cy: int, notches: int, rect: WinRect, dry_run: bool = False,
+             *, pause: float = 0.05) -> None:
+    """在窗口内 (cx,cy) 处滚动滚轮（微信游戏圈翻帖/翻右栏用；需逐格, 一次滚太远会跳）。
+
+    notches>0 向上、<0 向下，一格 = WHEEL_DELTA(120)。与 click_xy 共用同一个前台护栏。
+    ⚠ 必须走这一层: 用例里直接调 pyautogui 会绕过离线自检的替身, 自检时就会真滚鼠标。
+    """
+    if dry_run or notches == 0:
+        return
+    x, y = cx + rect.x, cy + rect.y
+    _guard_click(rect, x, y)
+    user32 = ctypes.windll.user32
+    user32.SetCursorPos(int(x), int(y))
+    time.sleep(0.12)
+    step = 120 if notches > 0 else -120
+    for _ in range(abs(int(notches))):
+        user32.mouse_event(0x0800, 0, 0, step, 0)      # MOUSEEVENTF_WHEEL
+        time.sleep(pause)
+
+
+def type_text(text: str, rect: WinRect, dry_run: bool = False, *, interval: float = 0.15) -> None:
+    """向窗口输入文本（聊天/评论框）。只支持可直接键入的 ASCII；中文需 IME, 用例不涉及。
+
+    调用前会确认窗口在前台（否则键盘输入会打进别的窗口）。与 click_xy 同理,
+    必须收在这一层 —— 自检要能整体替换掉它，避免离线回放真的往当前窗口敲字。
+    """
+    if dry_run:
+        return
+    _guard_click(rect, rect.x + rect.w // 2, rect.y + rect.h // 2)
+    time.sleep(0.25)
+    pyautogui.write(text, interval=interval)
 
 
 def drag_xy(x1: int, y1: int, x2: int, y2: int, rect: WinRect, dry_run: bool = False,
