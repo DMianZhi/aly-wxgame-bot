@@ -72,7 +72,7 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 全部脚本在 `tools/` 下按角色分四组；**一个用例一个文件**，互不影响。
 新增用例：① 在对应目录丢一个 `.py`（建议直接抄同组最像的那个当模板）② 在 `wb/registry.py` 登记一行 —— smoke 与本文档会自动跟上。
 
-### 每日用例（`tools/cases/`，25 个）
+### 每日用例（`tools/cases/`，26 个）
 
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
@@ -101,6 +101,7 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 23 | 无尽模式-世界竞赛 | `uv run python tools/cases/endless_world.py` | 2次/日(每次闪击3局=6局) | `--times N --allow-capped [--dry] [--no-back]` | **默认只执行 2 次**(2026-10-10 用户纠正: 1 次执行=1 次闪击=游戏内自动 3 局, 旧默认 6 把「6 局」错当「6 次」会多出击白打匹配)；闪击次数用尽会自动改用「匹配」；挑战币达上限默认放弃(必须 --allow-capped 才跑)；战前准备买道具前先读图标左上角金徽标的持有数(wb/icount.py，实测徽标=持有数)：已有 ≥3 不买(省钱)，1/2 补到 3，无徽标按 0 照买，徽标认不出保守不买(存图留证)；得分≥400万 由 wb/bscore.py 逐字读数驱动拖顶收尾(需连续两次复核；读数不可信一律判未达)；拖顶时机：明确≥400万(复核两次)或超时兜底(保留原设计)；判分收紧后不再出现假阳性提前拖；回首页用 nav_home 而**非** kit.goto_home 的 ral_back（实测世界竞赛页 nav_home 0.975 vs ral_back 0.867、结算页 ral_back 0.000）；时间走 kit.now/nap（自检虚拟时钟可拦）；dry 出计划且 exit=0（点击不生效→跨页步骤不规划，无法真验流程） |
 | 24 | 活跃度奖励 | `uv run python tools/cases/claim_activity.py` | - | `--dry` | 顶栏**第①个**图标(act_entry; 顶栏四图标=①活跃度②邮件③奖励④贵族, 2026-10-10 全探定版) → 活跃度面板(宽橙条=进度条非按钮) → 「领取」钮(act_claim, 700,593) → 恭喜弹窗领取；无可领时按钮变灰→留证收工不算失败 |
 | 25 | 奖励领取 | `uv run python tools/cases/claim_reward.py` | - | `--dry` | 顶栏**第③个**图标(rw_entry, ①任务②邮件都不是——三个都探过) → 奖励面板(X=sweep_close@752,235) → 面板行式「领取」(rw_claim, x=700 列)点**第一个**=游戏自动全领(实测 6 行全橙, 点第 1 行全变灰+恭喜弹窗)；前提=基础任务完成, 无可领时留证收工**不算失败**(rw_claim 天然不命中已领灰行)；这是体力的补给渠道之一(2026-10-10 用户口述) |
+| 26 | 社区奖励(游戏圈点赞/评论+桌面礼包) | `uv run python tools/cases/community_reward.py` | - | `--dry` | 首页「社区奖励」入口(cg_*) → 面板两行: 游戏圈内点赞(0/2)/评论(0/1), 各带「前往」→ 点前往拉起**独立窗口**「微信游戏」(与游戏同 PID, 2099x1312, 只复用 bot.find_game_window) → 游戏圈页签 → 点赞×2(点一个往下翻再点下一个) → 点评论图标开右侧抽屉 → 点输入框 type_text(111) → **打字后才出现的青色「评论」发送键** → 关抽屉 → 右栏「去领取」→ 礼包中心领取 → 回游戏 → 重开面板才会刷新出「领取」(点赞2/2、评论1/1 各一个) → 添加桌面页再领一个 → 回首页。⚠ 四个实测坑(均已固化成防线): ① **已赞图标会变红** → 灰空心 wx_like 匹配不到, 不能拿它当「feed 已加载」判据(备用 wx_comment; 并先滚回 feed 顶部)； ② 抽屉的 X 在 y≈175, 而**窗口自身的 X 在 y≈56** —— 发完评论后抽屉常自动收起, 此时 find 会以 0.915 命中最像的窗口关闭键, 一点就把整个微信窗口关掉(之后抓帧全黑) → 关闭类动作一律加 **y>100 位置守卫**； ③ 「领取」按钮**两页字形/尺寸不同**(游戏圈 144x66 / 添加桌面 238x81, 互匹配仅 0.68) → 两套模板均试(CLAIM_TPLS)； ④ 面板会停在上次的页签 → **无条件点一次「游戏圈」页签**, 否则任务被当成已完成静默跳过。 任务已完成的那一半自动跳过(不重复发公开评论); --skip-wx/--skip-claim/--likes=N 可分段验证 |
 
 ### 裁剪工具（`tools/crop/`，14 个）
 
@@ -451,11 +452,11 @@ wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁
 wb/registry.py     用例注册表（清单单一事实源：smoke 校验与 README 清单都读它）
 wb/selftest_kit.py 离线回放脚手架（实测帧 + 点击驱动状态机，零消耗验证分支）
 wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）
-tools/cases/       25 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, boss_mode, boss_hyper, void_rift, meteor_trap, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, guild_boss, clear_bag, quick_advance, friend_stamina, s_advance, star_supply, endless_world, claim_activity, claim_reward
+tools/cases/       26 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, boss_mode, boss_hyper, void_rift, meteor_trap, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, guild_boss, clear_bag, quick_advance, friend_stamina, s_advance, star_supply, endless_world, claim_activity, claim_reward, community_reward
 tools/crop/        14 个模板裁剪工具: crop_quickadv, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_hyper, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
 tools/selftest/    23 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, smoke
 tools/maint/       8 个维护工具: live_check, battle_watch, close_popup, probe_live, docs, build_digits, build_bscore_digits, build_mcount_digits
-templates/         按钮模板图（235 张，由 crop_* 用例与运行期裁剪产出）
+templates/         按钮模板图（249 张，由 crop_* 用例与运行期裁剪产出）
 shots/             截图：snap_* 校准源、*_selftest 判层夹具、montage 预览、坐标 CSV
 ```
 <!-- END:STRUCTURE -->
