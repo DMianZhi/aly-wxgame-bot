@@ -177,9 +177,9 @@ def case_constants(_rp):
     ROI 静默变空（friend_stamina 的 BADGE、star_supply 的 COUNTER 都踩过）。
     这里对项目里**真实常量**逐个断言: 宽高为正 + 在 812 标定帧上往返恒等。
     """
-    from tools.cases import (endless_world as ew, free_treasure as ft,
-                             friend_stamina as fs, guild_donate as gd,
-                             star_supply as ss, sweep_stage as sw)
+    from tools.cases import (endless_world as ew, friend_stamina as fs,
+                             guild_donate as gd, star_supply as ss,
+                             sweep_stage as sw)
     bad = []
 
     def pt(name, base, want812):
@@ -202,10 +202,14 @@ def case_constants(_rp):
     into("star.COUNTER", ss.COUNTER, (700, 203, 112, 67))
     into("guild.CHK", gd.CHK, (331, 791, 34, 34))
     # 点常量
-    for i, x in enumerate((156, 299, 440, 582)):
-        pt(f"sweep.MAT_ICONS[{i}]", sw.MAT_ICONS[i], (x, 345))
+    # ⚠ 2026-10-11 扫荡面板改版: 材料图标行从 y=345 **下移到 y=429**（旧 y=345 正落在
+    #   「3/4/5星材料」页签栏上, 盲点会否掉刚选好的 4星、整轮扫成 3星）→ 期望值必须同步,
+    #   否则审计会把重测后的**正确**常量报成错。下面 812 值 = 「(x,429)@814x1507」的等效落点。
+    for i, x in enumerate((175, 297, 419, 541)):
+        pt(f"sweep.MAT_ICONS[{i}]", sw.MAT_ICONS[i], (x, 431))
     pt("sweep.BLANK", sw.BLANK, (420, 620))
-    pt("treasure.POKE_XY", ft.POKE_XY, (406, 1040))
+    # 注: treasure.POKE_XY(406,1040) 已于 1ca1ec7 随「寻宝改版」删除 —— 改版后广告结束
+    # 改为**点金色宝箱开箱**(模板驱动), 该用例不再有任何坐标常量 → 无可审计项, 勿再加回。
     pt("endless.PLANE_FROM", ew.PLANE_FROM, (406, 1180))
     pt("endless.PLANE_TO", ew.PLANE_TO, (406, 225))
     return not bad, ("常量在 812 标定帧上往返恒等且口径正确" if not bad
