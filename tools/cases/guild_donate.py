@@ -37,7 +37,9 @@ TH_CLAIM = 0.92      # 「领取」键: 很多页面都有同款，抬到 0.92 �
 TH_BACK = 0.85       # 「返回」: 弹层/子页分数略降，用 0.85
 TH_DLG = 0.88        # 确认弹窗标志「确定要进行」
 TH_NOCNT = 0.88      # 提示层「捐献次数不足」/绿「确认」键
-POPUP_WAIT = 10.0    # 点支付键后等「恭喜获得」/确认弹窗的最长秒数
+POPUP_WAIT = 4.5     # 点支付键后等「恭喜获得」/确认弹窗的最长秒数
+                     # (2026-10-12 从 10s 收紧: 弹层动画实测 1~3s, 丢点击时
+                     #  旧值每次白等满 10s 才重试 —— 3 次捐献多耗 ~20s)
 BACK_WAIT = 10.0     # 点领取后等回捐献页的最长秒数
 CLICK_TRIES = 3      # 支付键最多点几次(丢点击重试; 重试前必查状态, 不会重复捐)
 # 勾选框内框(颜色判态)。坐标是在 812x1518 实帧 _guildtest_dialog{,_chk}.png 上量的:
@@ -277,7 +279,9 @@ def donate_once(sc: kit.Screen, kind: str) -> tuple[bool, str]:
         sc.shot(f"nopopup_{kind}")
         return False, "nopopup"
 
-    pop = sc.find("claim_btn", TH_CLAIM) or sc.wait("claim_btn", 6.0, th=TH_CLAIM)
+    # wait_state 的 POPUP 判定本身就是 claim_btn≥TH_CLAIM 命中(state()), 到这里
+    # 键必然在场 —— 旧版再 wait 6s 是纯冗余(最多再白耗 6s/次)
+    pop = sc.find("claim_btn", TH_CLAIM)
     if pop is None:
         log("弹层里找不到「领取」(claim_btn)")
         sc.shot(f"fail_claim_{kind}")
