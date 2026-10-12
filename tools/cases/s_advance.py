@@ -316,9 +316,10 @@ def run_tab(sc: kit.Screen, tab: str, label: str, cap: int) -> int:
             break
         got = refine_row_s(sc)
         if got == STOP_ALL:
-            log(f"⚠ 页签「{label}」因「经验过多」停手 → X 回背包, 整个用例结束")
+            # 2026-10-12 用户口径: 经验已满 = 所有 S 装都升不了, **后面的页签也不必跑了**
+            log(f"⚠ 页签「{label}」因「经验过多」停手 → X 回背包, 后续页签全部跳过")
             qa._close_any(sc)
-            return n
+            return STOP_ALL
         if got == qa.REFINE_SKIP:
             log(f"页签「{label}」跳过该行 → 处理下一行")
             qa._close_any(sc)
@@ -358,6 +359,9 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
     for tab, label in qa.TABS:
         log(f"========== 页签「{label}」 ==========")
         got = run_tab(sc, tab, label, cap)
+        if got == STOP_ALL:
+            log(f"⚠ 「经验过多」→ 直接收工(后续页签全部跳过), 累计升蓝 {total} 次")
+            break
         total += got
         log(f"页签「{label}」完成, 累计升蓝 {total} 次")
         if got < 0:
