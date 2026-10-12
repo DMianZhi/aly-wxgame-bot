@@ -20,9 +20,9 @@
     clear_if_full(rect, log)
 
 用法:
-    uv run python tools/cases/clear_bag.py [--dry] [--force] [--json]
-    (2026-10-12 起按用户要求归入**每日用例**: 每天 1 次, 默认只检测「背包已满」
-     弹窗, 不满就跳过; --force 硬清三步, 套 kit.run_case 统一契约)
+    uv run python tools/cases/clear_bag.py [--dry] [--json]
+    (2026-10-12 起归入**每日用例**且**默认直接三步清理**(用户反馈: 手动执行不需要
+     判断), 三步是收益动作(卖矿/合成)天天清无害; 套 kit.run_case 统一契约)
 """
 from __future__ import annotations
 
@@ -331,21 +331,19 @@ def main() -> None:
 
 
 PLAN = """[dry] 计划:
-  检测「背包已满」弹窗 → 有: 关弹窗 → 仓库三步(白装合成/矿石出售/经验合成) → 回首页
-                        → 无: 今日背包未满, 无需清理
-  --force: 跳过弹窗检测直接跑三步(维护/验证用)"""
+  仓库三步: 白装合成(循环到点不动为止) → 矿石出售 → 经验合成(魔方+残骸) → 回首页"""
 
 
 def run(sc: kit.Screen, args: kit.Args) -> bool:
-    """每日用例入口(2026-10-12 归入每日用例): 默认只检测, 背包不满=正常收工。"""
-    force = bool(args.extra.get("force"))
+    """每日用例入口: **直接三步清理**(2026-10-12 用户反馈: 手动执行不需要判断)。
+
+    三步本身是收益动作(卖矿/合成), 天天清也无害; 跑完回首页。
+    clear_if_full(force=True) 跳过弹窗检测直接干; --dry 仍零点击。
+    """
     if sc.dry:
-        log("[dry] 计划: 检测「背包已满」弹窗 → 有则三步清理, 无则跳过"
-            + (" (--force 硬清)" if force else ""))
+        log("[dry] 计划: 仓库三步(白装合成 → 矿石出售 → 经验合成) → 回首页")
         return True
-    did = clear_if_full(sc.rect, log, dry=sc.dry, force=force)
-    if not did:
-        log("背包未满(无「背包已满」弹窗) → 今日无需清理")
+    clear_if_full(sc.rect, log, dry=sc.dry, force=True)
     return True
 
 
