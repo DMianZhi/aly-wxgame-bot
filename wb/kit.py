@@ -450,6 +450,10 @@ HOME_MARK = "stage_btn"     # 首页专属标志（nav_home 在寻宝/兑换/转
 BACK_KEY = "ral_back"       # 子页通用返回键
 HOME_CLOSE = "gd_close"     # 子页面板右上 X（面板类页面）
 HOME_NAV = "nav_home"       # 「回首页」直达键（寻宝 hub 等页没有 ral_back, 只有它）
+# 子页返回键同款兄弟(2026-10-11 补): 仓库/装备系页面**没有** ral_back/nav_home,
+# 只有自己那款返回键 —— quick_advance 收尾因此被留在背包页, 连累下一个用例
+# (friend_stamina 起点错乱)。goto_home 的后续候选。
+BACK_KEY_MORE = ("eq_back", "wc_res_back")
 
 
 def is_home(sc: Screen) -> bool:
@@ -502,6 +506,11 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
         back = None if stuck else sc.find(BACK_KEY)
         if back is None:
             back = sc.find(HOME_NAV, 0.90)
+        if back is None:
+            for alt in BACK_KEY_MORE:       # 仓库/装备系子页只有自己的返回键
+                back = sc.find(alt)
+                if back is not None:
+                    break
         if back is None:
             if i >= tries - 1:
                 log("[warn] 找不到返回键，停手（请手动回首页）")
@@ -751,7 +760,12 @@ def _run_locked(name: str, fn, args: Args, *, prefix: str, lock_ttl: float,
             code = 1
         finally:
             if not args.dry and not args.no_back:
-                goto_home(sc)
+                try:
+                    goto_home(sc)
+                except Exception as e:
+                    # 点击护栏等运行时守卫也会在收尾时抛(2026-10-12) ——
+                    # 收尾失败只记日志, 别把用例自身的失败信息顶掉
+                    log(f"[warn] 收尾回首页失败: {type(e).__name__}: {e}")
     return code
 
     if args.dry and code == 1:      # dry 只是演练：没点成不算失败

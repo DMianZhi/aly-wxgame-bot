@@ -13,6 +13,8 @@ import cv2
 import numpy as np
 import pyautogui
 
+user32 = ctypes.windll.user32
+
 # DPI 感知：否则在高分屏缩放下 GetClientRect/ClientToScreen 坐标全部错位
 try:
     ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -381,7 +383,7 @@ def configure_mouse(dry_run: bool) -> None:
     pyautogui.FAILSAFE = not dry_run  # dry-run 是无头测试，别让 FAILSAFE 误触发
 
 
-def _ensure_foreground(rect: WinRect) -> None:
+def _ensure_foreground(rect: WinRect) -> bool:
     """前台守卫：游戏窗口不在前台就置前，避免点击落到别的窗口上。
 
     SetForegroundWindow 对后台进程常静默失败(实测点广告关闭时点了个空)，
@@ -389,13 +391,17 @@ def _ensure_foreground(rect: WinRect) -> None:
     重试仍失败则升级到 **ALT 键技巧**：Windows 前台锁只允许「刚刚有过输入」的进程
     抢前台，假按一下 ALT 就能骗过它。
 
+    返回是否真的前置成功(2026-10-11 起: 失败时调用方必须拒绝点击, 见 click_xy)。
+
     ⚠ 2026-10-09 实跑教训：endless 用例老代码自带一版 `_focus()`(就是这个 ALT 技巧)，
     迁移时我一度判定它「冗余（click_xy 已调 _ensure_foreground）」而删掉 —— 结果第 1 轮
     的点击被静默丢掉（日志只有那句 warn，页面没动，白跑一轮）。孤本技巧不能想当然删。
+    ⚠ 2026-10-12 实跑教训：用户正在用电脑时(前台锁死)所有重试+ALT 全失败, 旧版只打
+    warn 照样点 → 点击全打到无关窗口上(桌面/别的应用)。现在返回 False, click_xy 拦截。
     """
     user32 = ctypes.windll.user32
     if user32.GetForegroundWindow() == rect.hwnd:
-        return
+        return True
     SW_RESTORE, HWND_TOP = 9, 0
     SWP_NOSIZE, SWP_NOMOVE = 0x0001, 0x0002
     VK_MENU, KEYEVENTF_KEYUP = 0x12, 0x0002
@@ -407,7 +413,7 @@ def _ensure_foreground(rect: WinRect) -> None:
         time.sleep(0.2)
         if user32.GetForegroundWindow() == rect.hwnd:
             time.sleep(0.15)
-            return
+            return True
         if i == 2:                                  # 常规重试已连续失败 → 上 ALT 键技巧
             user32.keybd_event(VK_MENU, 0, 0, 0)
             user32.ShowWindow(rect.hwnd, SW_RESTORE)
@@ -416,9 +422,20 @@ def _ensure_foreground(rect: WinRect) -> None:
             time.sleep(0.35)
             if user32.GetForegroundWindow() == rect.hwnd:
                 time.sleep(0.15)
-                return
+                return True
     print("[warn] 游戏窗口未能置于前台，点击可能落在其他窗口上；请手动点一下游戏窗口",
           file=sys.stderr)
+    return False
+
+
+def _point_on_game(rect: WinRect, sx: int, sy: int) -> bool:
+    """点击点 (屏幕坐标) 的最顶层窗口是否仍是游戏窗口（或其子窗口）。"""
+    pt = wintypes.POINT(int(sx), int(sy))
+    win = user32.WindowFromPoint(pt)
+    if not win:
+        return False
+    root = user32.GetAncestor(win, 2)               # GA_ROOT
+    return bool(root) and root == rect.hwnd
 
 
 def drag_xy(x1: int, y1: int, x2: int, y2: int, rect: WinRect, dry_run: bool = False,
@@ -436,9 +453,9 @@ def drag_xy(x1: int, y1: int, x2: int, y2: int, rect: WinRect, dry_run: bool = F
     """
     if dry_run:
         return
-    _ensure_foreground(rect)
     sx, sy = x1 + rect.x, y1 + rect.y
     ex, ey = x2 + rect.x, y2 + rect.y
+    _guard_click(rect, sx, sy)   # 拖拽同样不许点进无关窗口(2026-10-12)
     pyautogui.moveTo(sx, sy, duration=random.uniform(0.1, 0.25))
     if pre:
         time.sleep(pre)
@@ -456,6 +473,22 @@ def drag_xy(x1: int, y1: int, x2: int, y2: int, rect: WinRect, dry_run: bool = F
         pyautogui.mouseUp()
 
 
+def _guard_click(rect: WinRect, sx: int, sy: int) -> None:
+    """点击护栏(2026-10-12): 前置失败后再验证点击点最顶层窗口。
+
+    用户正在用电脑时前台锁死, 前置必然失败 —— 旧版只打 warn 照样点,
+    实测点击全打到桌面/无关窗口上(差点误点别的东西)。现在直接拒绝点击:
+    用例会以未预期异常收场(code=1 + 留证), 绝不点进无关窗口。
+    """
+    if _ensure_foreground(rect):
+        return
+    if not _point_on_game(rect, sx, sy):
+        raise RuntimeError(
+            f"点击护栏: 游戏窗口不在点击点({sx},{sy})的最顶层"
+            "(被其它窗口盖住/Windows 前台锁定) → 已拒绝点击, 防止点进无关窗口; "
+            "请把游戏窗口置前或等电脑空闲后再跑")
+
+
 def click_xy(cx: int, cy: int, jitter: int, delay: tuple[float, float],
              rect: WinRect, dry_run: bool) -> None:
     """拟人单击：随机偏移 + 随机时长移动 + 随机停顿。坐标含窗口修正。
@@ -463,11 +496,11 @@ def click_xy(cx: int, cy: int, jitter: int, delay: tuple[float, float],
     2026-10-10 用户两轮要求加快, 现为「真人快速点击」风格: 移动 0.08~0.16s、
     点前停顿 0.02~0.05s —— 随机区间保留(防「过于规律」的风控), 只压时长。
     """
-    _ensure_foreground(rect)
     jx = cx + rect.x + random.randint(-jitter, jitter)
     jy = cy + rect.y + random.randint(-jitter, jitter)
     if dry_run:
         return
+    _guard_click(rect, jx, jy)
     pyautogui.moveTo(jx, jy, duration=random.uniform(0.08, 0.16))
     time.sleep(random.uniform(0.02, 0.05))
     pyautogui.click()

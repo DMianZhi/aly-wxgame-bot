@@ -238,6 +238,18 @@ def one_round(sc: kit.Screen, *, title_tpl: str, dlg_tpl: str,
             go = find(sc, "mh_dlg_go")
             if na is not None or go is not None:
                 break
+            # ⚠ 体力不足时点「闪击」可能弹**体力补充弹窗**(stamina_free/弹窗X 在场):
+            #   2026-10-12 批量实测(laser 52.6s 失败): 弹窗的橙键与闪击确认键同位,
+            #   mh_dlg_go 假命中 0.97 不消失 → 干等超时误报「没进局」。识别它 →
+            #   关掉弹窗, 跳过本轮(体力不够打不了, 跳过不算失败)。
+            if find(sc, "stamina_free", 0.90) is not None and \
+                    find(sc, "sweep_close", 0.90) is not None:
+                log("⚠ 体力不足弹窗(体力不够本次闪击) → 关掉并跳过本轮")
+                x = find(sc, "sweep_close", 0.90)
+                if x is not None:
+                    sc.click(x, "关闭体力不足弹窗")
+                    kit.nap(1.5)
+                return True
             kit.nap(1.0)
         if na is not None:
             log("「今日可攻打次数已耗尽」→ 关掉提示，跳过(不算失败)")
@@ -277,6 +289,17 @@ def one_round(sc: kit.Screen, *, title_tpl: str, dlg_tpl: str,
         if find(sc, "mh_dlg_go") is None and not on_card(sc, title_tpl):
             entered = True
             break
+        # ⚠ 点确认后弹**体力不足弹窗**(2026-10-12 批量实测: laser 点确认 → 弹体力
+        #   弹窗, 其橙键与确认键同位 → mh_dlg_go 假命中不消失 → 误报「没进局」)。
+        #   弹窗在场 = 本次未被放行(次数没扣) → 关掉, 跳过本轮(不算失败)。
+        if find(sc, "stamina_free", 0.90) is not None and \
+                find(sc, "sweep_close", 0.90) is not None:
+            log("⚠ 体力不足弹窗(体力不够本次闪击, 次数未扣) → 关掉并跳过本轮")
+            x = find(sc, "sweep_close", 0.90)
+            if x is not None:
+                sc.click(x, "关闭体力不足弹窗")
+                kit.nap(1.5)
+            return True
         kit.nap(1.0)
     if not entered:
         log("点了闪击但没进局(对话框/卡页还在) → 本轮失败(留证, 不算完成)")

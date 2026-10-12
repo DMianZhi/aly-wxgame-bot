@@ -13,22 +13,26 @@ from rich.text import Text
 CODE_MEAN = {0: "成功", 1: "未达成", 2: "环境问题(没窗口等)", 3: "已有实例在跑", 4: "超时"}
 
 
-def header_panel(n_cases: int, *, version: str = "") -> Panel:
+def header_panel(n_cases: int, *, tools: int = 0, version: str = "") -> Panel:
     t = Text()
     t.append("wxgame-bot", style="bold cyan")
     t.append(f"   每日用例 {n_cases} 个", style="dim")
+    if tools:
+        t.append(f" + 维护工具 {tools} 个", style="dim")
     if version:
         t.append(f"   {version}", style="dim")
-    t.append("\n空格勾选 · Enter 执行勾选 · A 一键全部 · dry 演练零副作用 · 日志实时滚动", style="dim")
+    t.append("\n空格勾选 · Enter 执行勾选 · A 全选 · dry 演练零副作用 · 日志实时滚动", style="dim")
     return Panel(t, border_style="cyan")
 
 
 def cases_table(entries, *, title: str = "每日用例",
                 selected: set[int] | None = None,
-                cursor: int | None = None) -> Table:
+                cursor: int | None = None,
+                first_no: int = 1) -> Table:
     """用例清单（直接吃 wb.registry 的 Entry，单一事实源）。
 
-    selected/cursor: 多选模式的勾选集合(0-based)与光标行(0-based)，
+    selected/cursor: 多选模式的勾选集合与光标行 —— 都是**全局 0-based 索引**，
+    first_no 是本表首行的全局序号（维护工具第二张表从 len(每日用例) 起算）。
     两者都为 None = 纯展示(老样式)。
     """
     multi = selected is not None
@@ -40,14 +44,14 @@ def cases_table(entries, *, title: str = "每日用例",
     t.add_column("用途", overflow="fold")
     t.add_column("每日额度", no_wrap=True, style="cyan")
     t.add_column("开关", style="dim", overflow="fold")
-    for i, e in enumerate(entries):
-        style = None
-        if cursor is not None and i == cursor:
-            style = "bold reverse"
+    for k, e in enumerate(entries):
+        i = first_no - 1 + k                 # 全局 0-based 索引
+        style = "bold reverse" if cursor is not None and i == cursor else None
         row = []
         if multi:
-            row.append(Text("✔", style="bold green") if i in selected else Text(""))
-        row += [str(i + 1), e.title, e.quota, e.flags]
+            row.append(Text("✔", style="bold green") if i in (selected or set())
+                       else Text(""))
+        row += [str(i + 1), e.title, getattr(e, "quota", "") or "-", e.flags]
         t.add_row(*row, style=style)
     return t
 

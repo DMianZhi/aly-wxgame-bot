@@ -188,5 +188,6 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
 if __name__ == "__main__":
     raise SystemExit(kit.run_case(
         "free_stamina", "免费体力（最多 4 轮）", run,
-        plan=PLAN, prefix="fs_", lock_ttl=600, default_max=1,
+        plan=PLAN, prefix="fs_", lock_ttl=600,
+        default_max=4,     # 4 次/日全领(2026-10-11 批量实测: 旧默认 1 只领 1 次剩 3 次)
     ))
