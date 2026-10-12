@@ -45,11 +45,6 @@ def _e(name: str, title: str, group: str, *, quota: str = "-", flags: str = "--d
 
 # --------------------------------------------------------------- 每日用例（14）
 CASES = [
-    _e("clear_bag", "背包清理", DAILY, flags="--dry --force", kit=True,
-       note="⭐ 2026-10-12 归入每日用例(用户要求, 每天例行一次): 默认只检测「背包已满」"
-            "弹窗, 不满=正常收工 code=0; --force 硬清三步。背包满 → 金币去售卖 / "
-            "装备白装循环自动合成(到点不动为止) / 经验合成(魔方取消勾选 + 残骸合成)；"
-            "clear_if_full 已 hook 进 sweep_stage/free_turn(背包满自动清理再重试)"),
     _e("free_stamina", "免费体力", DAILY, quota="4/日", flags="--dry --max=N", kit=True,
        note="点击生效判据=「免费」按钮消失(非页面变化)；弹窗在场不重复点入口；"
             "2026-10-10 美术轮换: 真弹窗 stamina_close 掉到 0.905~0.997 摆动(弹窗内轮播横幅)、"
@@ -133,6 +128,11 @@ CASES = [
             "绿勾 459=今日已领 / 都没有=未达 50M→继续出击，最多 3 次)；开局已可领就直接领(不浪费次数)；"
             "结算页「确定」必须用 gb_ok(wc_settle_go 会在 100% 进度条上 0.970 假命中，gb_ok 仅 0.418)；"
             "技能 icon 换皮但位置一致→battle.fight 模板不中自动退兜底坐标"),
+    _e("clear_bag", "背包清理", DAILY, flags="--dry --force", kit=True,
+       note="⭐ 2026-10-12 归入每日用例(用户要求, 每天例行一次): 默认只检测「背包已满」"
+            "弹窗, 不满=正常收工 code=0; --force 硬清三步。背包满 → 金币去售卖 / "
+            "装备白装循环自动合成(到点不动为止) / 经验合成(魔方取消勾选 + 残骸合成)；"
+            "clear_if_full 已 hook 进 sweep_stage/free_turn(背包满自动清理再重试)"),
     _e("quick_advance", "快速进阶", DAILY, quota="无次数上限(耗绿装材料)",
        flags="--max N --dry", kit=True,
        note="⭐ 绿装判据 = 材料格下方**数字牌底色**(不是边框/图面: 边框仅 2~3px，第 4 格白框绿图会把"
