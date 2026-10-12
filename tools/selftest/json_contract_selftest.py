@@ -175,7 +175,9 @@ def case_nogame(_rp):
 def case_locked(_rp):
     """④ 锁冲突路径也要出 JSON。"""
     LOCK.parent.mkdir(parents=True, exist_ok=True)
-    LOCK.write_text("0", encoding="utf-8")     # 造一个「别人正在跑」的锁
+    # 锁里写**活着的 pid**(本进程): single_instance 2026-10-12 起会探测 pid 存活,
+    # 死 pid = 残留锁直接接管(不再 code=3) —— 旧版写 0 在新语义下会被接管
+    LOCK.write_text(str(os.getpid()), encoding="utf-8")
     try:
         p = _probe(["--json", "--no-back"])
         d = _one_json(p)

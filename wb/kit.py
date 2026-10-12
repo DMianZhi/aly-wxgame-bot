@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import json
 import os
 import sys
@@ -147,12 +148,28 @@ def now() -> float:
 LOCKS_DIR = APP_DIR / "shots"
 
 
+def _pid_alive(pid: int) -> bool:
+    """pid 对应进程是否还活着（Windows: OpenProcess 探测, 零依赖）。"""
+    if pid <= 0:
+        return False
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+    if not h:
+        return False
+    ctypes.windll.kernel32.CloseHandle(h)
+    return True
+
+
 @contextlib.contextmanager
 def single_instance(name: str, ttl: float = 600.0, *, dry: bool = False):
     """同名用例互斥：已有实例在跑就退出（防重复花每日次数/重复领取）。
 
     锁 = shots/.<name>.lock，内容写 pid；超过 ttl 视为残留锁可接管（进程被 kill 等）。
     dry 模式不落锁（零副作用）。
+
+    2026-10-12 补 pid 存活检测: 强杀(如 TUI Ctrl+C 停子进程)时 finally 不会跑,
+    锁会残留 —— 旧逻辑在 ttl 内一律退出, 实测残留锁害得后续 3600s 全部 code=3
+    (锁里 pid 24488 早已死亡)。现在 pid 已死 = 残留锁 → 立即接管, 不看年龄。
     """
     lock = LOCKS_DIR / f".{name}.lock"
     if dry:
@@ -162,11 +179,19 @@ def single_instance(name: str, ttl: float = 600.0, *, dry: bool = False):
         # 这里比的是**文件 mtime**（真实世界的时间）→ 必须用真实时钟，不能用 now()
         # （离线自检下 now() 含虚拟偏移，会把锁年龄算错）
         age = time.time() - lock.stat().st_mtime
-        if age < ttl:
-            log(f"已有实例在跑(锁 {lock.name} 年龄 {age:.0f}s < {ttl:.0f}s) → 退出，避免重复操作")
-            yield False
-            return
-        log(f"锁已过期({age:.0f}s)，接管")
+        try:
+            old_pid = int(lock.read_text(encoding="utf-8").strip() or 0)
+        except ValueError:
+            old_pid = 0
+        if _pid_alive(old_pid):
+            if age < ttl:
+                log(f"已有实例在跑(pid {old_pid}, 锁 {lock.name} 年龄 {age:.0f}s < {ttl:.0f}s) "
+                    f"→ 退出，避免重复操作")
+                yield False
+                return
+            log(f"锁已过期({age:.0f}s)但 pid {old_pid} 仍在 → 视为卡死, 接管")
+        else:
+            log(f"残留锁(pid {old_pid} 已退出, 年龄 {age:.0f}s) → 接管")
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(str(os.getpid()), encoding="utf-8")
     try:
