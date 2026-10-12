@@ -34,10 +34,16 @@ import numpy as np
 from tools.cases import quick_advance as qa  # noqa: E402
 from wb import bot as _bot  # noqa: E402
 from wb import kit  # noqa: E402
+from wb.cfg import TEMPLATE_PATH  # noqa: E402
 from wb.kit import log  # noqa: E402
 
-# S 徽标团块判据直接沿用 qa 已标定的四常量(真徽标 331px/18x21/fill 0.88)
-S_CC_MIN, S_BBOX_MAX, S_FILL = qa.S_CC_MIN, qa.S_BBOX_MAX, qa.S_FILL
+_TPL_PATH = TEMPLATE_PATH("exp_over_text")
+
+# S 徽标团块判据: 沿用 qa 的 bbox/fill 两条, 面积下限按直扫实测定(2026-10-12 真机:
+# 列表页真徽标 area=141/136、fill 0.72/0.70, qa 的 S_CC_MIN=150 会误杀; 碎屑 95/0.57)
+S_AREA_MIN = 120
+S_FILL_MIN = 0.62
+S_BBOX_MAX = qa.S_BBOX_MAX   # 徽标紧实: bbox 边长上限(沿 qa 标定 32)
 LIST_AREA = qa.LIST_AREA
 ROW_ICON_X = qa.ROW_ICON_X
 
@@ -46,26 +52,38 @@ def s_rows(sc: kit.Screen, img) -> list[int]:
     """列表页带 S 徽标的行 → 行中心 y(客户区, 升序)。
 
     徽标悬浮在材料格 bbox 上沿, 且白品质 S 装没有绿格可依托 —— 所以直接在
-    LIST_AREA 里扫橙色团块(面积/bbox/fill 三条 qa 已标定约束, 丢弃「相对格顶」
-    那条因为不依赖格 bbox), 团块中心 y 即行位置。
+    LIST_AREA 里扫橙色团块(面积/bbox/fill 三条约束), 团块中心 y 即行位置。
     """
     x0, y0, w, h = _bot.ref_rect_to_client(*LIST_AREA, sc.w, sc.h)
     roi = (sc.grab() if img is None else img)[y0:y0 + h, x0:x0 + w]
     if roi.size == 0:
         return []
     r, g, b = (roi[:, :, i].astype(int) for i in (2, 1, 0))
-    mask = ((r > 150) & (r - g > 60) & (r - b > 80)).astype(np.uint8)
+    mask = ((r > 140) & (r - g > 40) & (r - b > 50)).astype(np.uint8)
     n, _lab, st, ce = cv2.connectedComponentsWithStats(mask, 8)
     ys = []
     for j in range(1, n):
         a = int(st[j, cv2.CC_STAT_AREA])
         bw, bh = int(st[j, cv2.CC_STAT_WIDTH]), int(st[j, cv2.CC_STAT_HEIGHT])
-        if a < S_CC_MIN or bw > S_BBOX_MAX or bh > S_BBOX_MAX:
+        if a < S_AREA_MIN or bw > S_BBOX_MAX or bh > S_BBOX_MAX:
             continue
-        fill = a / max(1, bw * bh)
-        if fill >= S_FILL:
+        if a / max(1, bw * bh) >= S_FILL_MIN:
             ys.append(int(ce[j][1]) + y0)
     return sorted(set(ys))
+
+
+def quality_cols(sc: kit.Screen, img) -> tuple[list[int], list[int]]:
+    """详情页默认态(数量面板展开**前**)的 (绿槽列, 白槽列)。
+
+    ⚠ 与 qa.green_cols 的三点不同(2026-10-12 真机实测):
+      ① 必须在展开**前**判 —— 展开后数字牌位置漂移, pill 取样区全取空(绿分 0.000);
+      ② 不排除 S 角标格 —— 本用例 S 装就是主角(qa 的语义「S 不当材料」会全跳,
+         实测 S 装面板绿槽 tile_green=0.403, 远超 GREEN_MIN=0.15);
+      ③ 白槽判据 = 数字牌中段三通道高且接近(白底), 阈值待白装真帧标定。
+    """
+    gcols = [i for i in range(4) if qa.tile_green(sc, i, img) >= qa.GREEN_MIN]
+    wcols = white_cols(sc, img)
+    return gcols, wcols
 
 
 def white_cols(sc: kit.Screen, img) -> list[int]:
@@ -91,16 +109,47 @@ def white_cols(sc: kit.Screen, img) -> list[int]:
     return out
 
 
+def _dismiss_exp_over(sc: kit.Screen) -> None:
+    """点掉「经验过多」提示条(右侧绿色确认键, 与文字同层)。"""
+    img = sc.grab()
+    b, g, r = img[..., 0].astype(int), img[..., 1].astype(int), img[..., 2].astype(int)
+    green = (g > 140) & (g - r > 50) & (g - b > 50)
+    ys, xs = np.where(green)
+    if len(ys) > 500:
+        sc.click_base(int(xs.mean()), int(ys.mean()), "确定(经验过多提示)")
+        kit.nap(1.5)
+    else:
+        log("[warn] 没找到提示条上的确认键(可能已自动消失)")
+
+
+STOP_ALL = -3   # refine_row_s → run_tab/run: 「经验过多」→ 停止整个用例(用户口径)
+
+
+def _exp_over(sc: kit.Screen, img=None) -> bool:
+    """「经验过多」提示条在场？(用户实测: 升蓝时经验够会弹, 此时继续=浪费)"""
+    frame = sc.grab() if img is None else img
+    tpl = cv2.imread(str(_TPL_PATH))
+    if tpl is None:
+        return False
+    r = _bot.match_adaptive(frame, tpl, 0.90)
+    return r is not None
+
+
 def refine_row_s(sc: kit.Screen) -> int:
     """S 装一行: 全槽清零 → 绿槽(无则白槽)+1 → 自动选经验 → 快速进阶。
 
-    返回成功进阶次数; -1 = 中途出错。每轮材料刷新, 直到没有可加的绿/白。
+    返回成功进阶次数; -1 = 中途出错。
+    ⚠ 弹「经验过多」提示条 → 点掉并**停止整个用例**(2026-10-12 用户口径:
+      经验已超出国标, 再升也是浪费)。
     """
     done = 0
     for rnd in range(1, qa.ROW_MAX + 1):
+        # ⚠ 品质判色必须在面板展开**前**的默认态上做(展开后数字牌漂移)
         img = sc.grab()
-        gcols = qa.green_cols(sc, img)
-        wcols = white_cols(sc, img)
+        if _exp_over(sc, img):
+            log("⚠ 「经验过多」提示在场 → 停止 S 装升蓝(本轮及后续全部放弃)")
+            return STOP_ALL
+        gcols, wcols = quality_cols(sc, img)
         if not gcols and not wcols:
             log("本行已无绿/白材料 → 收手")
             return done
@@ -133,9 +182,20 @@ def refine_row_s(sc: kit.Screen) -> int:
             log("⚠ S 装进阶成本与绿装基准不同(告警, 不拦) → 已留证")
             sc.shot(f"cost_mismatch_s_{rnd}", force=True)
         if not qa._tap(sc, "qa_go", "快速进阶"):
+            # ⚠ 「经验过多」提示条在选料确认后弹出、盖住详情页 → qa_go 找不到
+            #   (2026-10-12 实测卡点)。先查它再放弃。
+            if _exp_over(sc):
+                log("⚠ 弹出「经验过多」提示 → 经验已够, 升蓝到此为止(停止整个用例)")
+                _dismiss_exp_over(sc)
+                return STOP_ALL
             return -1
         # 二次确认弹窗(可能因「今日不再提示」被勾过而不出现) → 只点绿确认, 不碰勾选框
         for _ in range(6):
+            # 「经验过多」提示条也会在这个时机弹(变体路径) → 点掉并停整个用例
+            if qa._find(sc, "exp_over_text", 0.90) is not None:
+                log("⚠ 弹出「经验过多」提示 → 经验已够, 升蓝到此为止(停止整个用例)")
+                _dismiss_exp_over(sc)
+                return STOP_ALL
             c = qa._find(sc, "qa_confirm")
             if c is not None:
                 sc.click(c, "确认(二次弹窗)")
@@ -193,6 +253,10 @@ def run_tab(sc: kit.Screen, tab: str, label: str, cap: int) -> int:
             sc.shot("fail_detail_s")
             break
         got = refine_row_s(sc)
+        if got == STOP_ALL:
+            log(f"⚠ 页签「{label}」因「经验过多」停手 → X 回背包, 整个用例结束")
+            qa._close_any(sc)
+            return n
         if got == qa.REFINE_SKIP:
             log(f"页签「{label}」跳过该行 → 处理下一行")
             qa._close_any(sc)
@@ -231,8 +295,11 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
     total = 0
     for tab, label in qa.TABS:
         log(f"========== 页签「{label}」 ==========")
-        total += run_tab(sc, tab, label, cap)
+        got = run_tab(sc, tab, label, cap)
+        total += got
         log(f"页签「{label}」完成, 累计升蓝 {total} 次")
+        if got < 0:
+            log("⚠ 页签返回异常 → 停止后续页签")
     log(f"页签跑完, 合计升蓝 {total} 次")
     if total == 0:
         log("本次没有可升蓝的 S 装(可能都升完了) → 视为完成")
