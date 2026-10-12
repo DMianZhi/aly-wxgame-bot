@@ -48,11 +48,40 @@ LIST_AREA = qa.LIST_AREA
 ROW_ICON_X = qa.ROW_ICON_X
 
 
-def s_rows(sc: kit.Screen, img) -> list[int]:
-    """列表页带 S 徽标的行 → 行中心 y(客户区, 升序)。
+def white_tiles(sc: kit.Screen, img) -> list[int]:
+    """列表页「白色材料格」的行 y(2026-10-12 真机标定)。
 
-    徽标悬浮在材料格 bbox 上沿, 且白品质 S 装没有绿格可依托 —— 所以直接在
-    LIST_AREA 里扫橙色团块(面积/bbox/fill 三条约束), 团块中心 y 即行位置。
+    白格 = 高亮团块 mn>140、area 250~800、bbox 24~48、近方形(0.6~2.6)。
+    实测: 白格 33x30/330px(均值 BGR≈239,214,178 浅暖白 —— 旧「极差<45」的
+    纯白判据把它卡掉了, 浅黄极差 61); 绿格(64x90)另一套 qa._green_tiles。
+    """
+    x0, y0, w, h = _bot.ref_rect_to_client(*LIST_AREA, sc.w, sc.h)
+    roi = (sc.grab() if img is None else img)[y0:y0 + h, x0:x0 + w]
+    if roi.size == 0:
+        return []
+    b, g, r = roi[..., 0].astype(int), roi[..., 1].astype(int), roi[..., 2].astype(int)
+    mn = np.minimum(np.minimum(b, g), r)
+    m = (mn > 140).astype(np.uint8)
+    n, _lab, st, ce = cv2.connectedComponentsWithStats(m, 8)
+    out = []
+    for j in range(1, n):
+        a = int(st[j, cv2.CC_STAT_AREA])
+        bw, bh = int(st[j, cv2.CC_STAT_WIDTH]), int(st[j, cv2.CC_STAT_HEIGHT])
+        if not (250 <= a <= 800 and 24 <= bw <= 48 and 24 <= bh <= 48):
+            continue
+        if not 0.6 <= bw / max(1, bh) <= 2.6:
+            continue
+        out.append(int(ce[j][1]) + y0)
+    return out
+
+
+def s_rows(sc: kit.Screen, img) -> list[int]:
+    """列表页**可处理的 S 行** → 行中心 y(客户区, 升序)。
+
+    双条件(2026-10-12 用户反馈: 别点进详情才发现没料, 列表页就要预筛):
+      ① 该行有 S 徽标(橙色团块直扫, 不依赖绿格 —— 白品质 S 装没有绿格);
+      ② 该行有绿格(qa._green_tiles)或白格(white_tiles) —— 行 ±25px 内。
+    只有徽标没有绿/白材料的 S 行直接跳过, 不浪费详情页那套步骤。
     """
     x0, y0, w, h = _bot.ref_rect_to_client(*LIST_AREA, sc.w, sc.h)
     roi = (sc.grab() if img is None else img)[y0:y0 + h, x0:x0 + w]
@@ -61,14 +90,27 @@ def s_rows(sc: kit.Screen, img) -> list[int]:
     r, g, b = (roi[:, :, i].astype(int) for i in (2, 1, 0))
     mask = ((r > 140) & (r - g > 40) & (r - b > 50)).astype(np.uint8)
     n, _lab, st, ce = cv2.connectedComponentsWithStats(mask, 8)
-    ys = []
+    badges = []
     for j in range(1, n):
         a = int(st[j, cv2.CC_STAT_AREA])
         bw, bh = int(st[j, cv2.CC_STAT_WIDTH]), int(st[j, cv2.CC_STAT_HEIGHT])
         if a < S_AREA_MIN or bw > S_BBOX_MAX or bh > S_BBOX_MAX:
             continue
         if a / max(1, bw * bh) >= S_FILL_MIN:
-            ys.append(int(ce[j][1]) + y0)
+            badges.append(int(ce[j][1]) + y0)
+    greens = [cy for cy, _ in qa._green_tiles(sc, img)]
+    whites = white_tiles(sc, img)
+    ys = []
+    for by in badges:
+        # ⚠ 参照系: 徽标悬浮在材料格**顶沿**(格 90 高), 绿簇中心 y ≈ 徽标 y + 45;
+        #   白格小(30 高)中心 ≈ 徽标 y + 20。直接拿徽标 y 对格中心 y 会差 35~65px
+        #   (2026-10-12 实测: 徽标 631 vs 绿格 666 被旧 ±25 容差错杀)。
+        near_g = any(abs((by + 45) - gy) <= 45 for gy in greens)
+        near_w = any(abs((by + 20) - wy) <= 30 for wy in whites)
+        if near_g or near_w:
+            ys.append(by)
+        else:
+            log(f"列表页 y={by}: S 行但无绿/白材料格 → 列表页直接跳过(不点详情)")
     return sorted(set(ys))
 
 
@@ -246,10 +288,30 @@ def run_tab(sc: kit.Screen, tab: str, label: str, cap: int) -> int:
             qa._close_any(sc)
             break
         visited.append(qa.row_sig(sc, y))
-        sc.click_base(ROW_ICON_X, y, f"S行主图(y={y})")
-        kit.nap(qa.NAP_OPEN)
-        if qa.page(sc) != qa.DETAIL:
-            log("⚠ 点开后不是详情页 → 停手(留证)")
+        # ⚠ 两个坑(2026-10-12 实测): ① 上滑惯性滚动会吃掉点击; ② page() 在
+        #   转场瞬帧上抖动(列表页被判 HOME) —— 所以点击后**轮询等详情页**
+        #   (最多 3s), 落空再等稳重找重点一次。
+        entered = False
+        for attempt in range(2):
+            sc.click_base(ROW_ICON_X, y, f"S行主图(y={y}, 第{attempt + 1}次)")
+            deadline = kit.time.time() + 3.0
+            while kit.time.time() < deadline:
+                if qa.page(sc) == qa.DETAIL:
+                    entered = True
+                    break
+                kit.nap(0.6)
+            if entered:
+                break
+            log("⚠ 点后 3s 没进详情页(滚动动画/转场抖动) → 等稳重找再点")
+            kit.nap(1.2)
+            img2 = sc.grab()
+            ys2 = [yy for yy in s_rows(sc, img2)
+                   if not any(qa.same_row(qa.row_sig(sc, yy), v) for v in visited[:-1])]
+            if not ys2:
+                break
+            y = ys2[0]
+        if not entered:
+            log("⚠ 两次点行都没进详情页 → 停手(留证)")
             sc.shot("fail_detail_s")
             break
         got = refine_row_s(sc)

@@ -867,9 +867,10 @@ def to_bag(sc: kit.Screen) -> bool:
         elif p == HOME:
             _tap(sc, "warehouse_btn", "首页→仓库")
         else:
-            log("未知页面 → 停手")
-            sc.shot("unknown_page")
-            return False
+            # ⚠ 转场动画期间所有标志都检不到(2026-10-12 实测: WH→BAG 点击后
+            #   单帧判 "?"), 别立即停手 —— 等一拍重判, 连续未知才放弃。
+            log("未知页面(可能在转场) → 等 2s 重判")
+            kit.nap(2.0)
     return False
 
 
@@ -898,9 +899,10 @@ def to_list(sc: kit.Screen, tab: str, label: str) -> bool:
         elif p == HOME:
             _tap(sc, "warehouse_btn", "首页→仓库")
         else:
-            log("未知页面 → 停手")
-            sc.shot("unknown_page")
-            return False
+            # ⚠ 转场动画期间所有标志都检不到(2026-10-12 实测: WH→BAG 点击后
+            #   单帧判 "?"), 别立即停手 —— 等一拍重判, 连续未知才放弃。
+            log("未知页面(可能在转场) → 等 2s 重判")
+            kit.nap(2.0)
     return False
 
 
