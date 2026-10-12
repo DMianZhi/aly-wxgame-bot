@@ -150,18 +150,19 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 22 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 8 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 23 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) ＋多选勾选渲染(✔) ＋批量汇总面板三态 ＋**批量顺序执行** dry(依序 2/2)；2026-10-11: 菜单换 msvcrt 按键循环 (↑↓移动/空格勾选/a全选/Enter执行勾选/A全选)；2026-10-12: Live 原位重写修闪烁(仅按键后刷新) ＋**维护工具第二段**(背包清理等 9 个进列表) |
 | 23 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
 
-### 维护工具（`tools/maint/`，8 个）
+### 维护工具（`tools/maint/`，9 个）
 
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
-| 1 | 模板体检 | `uv run python tools/maint/live_check.py` | - | `[snap]` | 每张模板 vs 当前画面逐一评分，找 stale 模板/报当前页 |
-| 2 | 局内监控 | `uv run python tools/maint/battle_watch.py` | - | `--dry` | 战斗拖拽 + 血量监控（阵亡前留证） |
-| 3 | 弹窗压制 | `uv run python tools/maint/close_popup.py` | - | `-` | 识别并关掉挡路弹窗 |
-| 4 | 零消耗实况探针 | `uv run python tools/maint/probe_live.py` | - | `--case=sweep_stage\|boss_hyper [--station=装甲 --switch=5]` | 导航到面板后只读判据+取样, **绝不点材料/扫荡/超限挑战**; sweep_stage=读 4 个材料计数并报真最少(验 --material=auto); boss_hyper=沿右箭头扫掠报「已击败/超限125%」出击前提 |
-| 5 | 文档清单生成 | `uv run python tools/maint/docs.py` | - | `--check` | 按 wb/registry.py 重写 README 的用例清单/结构树（--check 只校验同步） |
-| 6 | 重建机友加成小字模板 | `uv run python tools/maint/build_digits.py` | - | `--shot x.png --truth ... --skip 930 --dry` | 源: 选择机友页 5 行战力真值；**高亮行必须 --skip**（配色不同会污染模板）；源数据无 3 → templates/digits 缺 dg3，未补（乱补会把 7/8/9 读成 3，是危险方向） |
-| 7 | 重建战内得分数字模板 | `uv run python tools/maint/build_bscore_digits.py` | - | `--add shots/x.png=5012345 --dry` | 战内青蓝粗体是**独立字体**，不能拿 tools/maint/build_digits.py（机友小字）那套凑；现有源帧只覆盖 {0,1,2,3,4,6,9}, 缺 {5,7,8} |
-| 8 | 重建扫荡材料计数数字模板 | `uv run python tools/maint/build_mcount_digits.py` | - | `-` | 数据源=wb/mcount.GOLDEN 的 5 帧真值条带（60 字形，覆盖 0..9）；金底描边数字是**第 4 套独立字形**（与 digits/bdigits/idigits 都不同源，跨源最佳仅 0.81）；每数字存多模板取最大分（单 medoid 会把 289 读成 283）；跑完 uv run python wb/mcount.py --selftest 零消耗自证 |
+| 1 | 夹具重采 | `uv run python tools/maint/capture_fixtures.py` | - | `--case=<配方> \| --list` | 重修被删的 shots/ 真帧夹具: **先把客户区改成夹具原始像素尺寸**(自检期望坐标是按 夹具尺寸记录的, 814x1507 vs 812x1518 在 y≈1300 就偏 ~9px、吃掉整个 ±8 容差) 再零消耗纯导航逐页拍。⚠ 状态守卫: 每日状态帧(如 void_rift 工坊页的免费钮、claim_reward 的「6 行全橙」)必须在**当日未领/满额度**时采, 今日已领时**不落盘** 并提示等次日刷新 —— 否则会把 SKIP 变成假 FAIL, 反而掩盖真状态 |
+| 2 | 模板体检 | `uv run python tools/maint/live_check.py` | - | `[snap]` | 每张模板 vs 当前画面逐一评分，找 stale 模板/报当前页 |
+| 3 | 局内监控 | `uv run python tools/maint/battle_watch.py` | - | `--dry` | 战斗拖拽 + 血量监控（阵亡前留证） |
+| 4 | 弹窗压制 | `uv run python tools/maint/close_popup.py` | - | `-` | 识别并关掉挡路弹窗 |
+| 5 | 零消耗实况探针 | `uv run python tools/maint/probe_live.py` | - | `--case=sweep_stage\|boss_hyper [--station=装甲 --switch=5]` | 导航到面板后只读判据+取样, **绝不点材料/扫荡/超限挑战**; sweep_stage=读 4 个材料计数并报真最少(验 --material=auto); boss_hyper=沿右箭头扫掠报「已击败/超限125%」出击前提 |
+| 6 | 文档清单生成 | `uv run python tools/maint/docs.py` | - | `--check` | 按 wb/registry.py 重写 README 的用例清单/结构树（--check 只校验同步） |
+| 7 | 重建机友加成小字模板 | `uv run python tools/maint/build_digits.py` | - | `--shot x.png --truth ... --skip 930 --dry` | 源: 选择机友页 5 行战力真值；**高亮行必须 --skip**（配色不同会污染模板）；源数据无 3 → templates/digits 缺 dg3，未补（乱补会把 7/8/9 读成 3，是危险方向） |
+| 8 | 重建战内得分数字模板 | `uv run python tools/maint/build_bscore_digits.py` | - | `--add shots/x.png=5012345 --dry` | 战内青蓝粗体是**独立字体**，不能拿 tools/maint/build_digits.py（机友小字）那套凑；现有源帧只覆盖 {0,1,2,3,4,6,9}, 缺 {5,7,8} |
+| 9 | 重建扫荡材料计数数字模板 | `uv run python tools/maint/build_mcount_digits.py` | - | `-` | 数据源=wb/mcount.GOLDEN 的 5 帧真值条带（60 字形，覆盖 0..9）；金底描边数字是**第 4 套独立字形**（与 digits/bdigits/idigits 都不同源，跨源最佳仅 0.81）；每数字存多模板取最大分（单 medoid 会把 289 读成 283）；跑完 uv run python wb/mcount.py --selftest 零消耗自证 |
 <!-- END:CASES -->
 
 ## 窗口自适应（窗口尺寸变了怎么办）
@@ -455,7 +456,7 @@ wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）
 tools/cases/       26 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, boss_mode, boss_hyper, void_rift, meteor_trap, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, guild_boss, clear_bag, quick_advance, friend_stamina, s_advance, star_supply, endless_world, claim_activity, claim_reward, community_reward
 tools/crop/        14 个模板裁剪工具: crop_quickadv, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_hyper, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
 tools/selftest/    23 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, smoke
-tools/maint/       8 个维护工具: live_check, battle_watch, close_popup, probe_live, docs, build_digits, build_bscore_digits, build_mcount_digits
+tools/maint/       9 个维护工具: capture_fixtures, live_check, battle_watch, close_popup, probe_live, docs, build_digits, build_bscore_digits, build_mcount_digits
 templates/         按钮模板图（249 张，由 crop_* 用例与运行期裁剪产出）
 shots/             截图：snap_* 校准源、*_selftest 判层夹具、montage 预览、坐标 CSV
 ```
