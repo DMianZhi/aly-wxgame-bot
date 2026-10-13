@@ -124,6 +124,30 @@ def pick_row(sc: kit.Screen):
     return None, "one_material_only"
 
 
+def over_cap_stable(sc: kit.Screen, tries: int = 3, gap: float = 0.8) -> bool | None:
+    """面板里回读体力是否超上限，并要求**连续两次一致**才采信。
+
+    ⚠ 为什么要稳定化（2026-10-13 实跑发现过冲）: 一次实跑从 175 扫到 **70**
+      （理论应停在 120 附近），怀疑「关掉扫荡完成弹层”的瞬间顶栏数字还没刷新 →
+      读到的是上一轮的旧值(仍超上限) → 多扫了好几轮。
+      这里先读一次、隔 gap 再读一次，不一致就继续确认（最多 tries 次）；
+      **宁可多等一会儿，也不要因为读旧值而多扫**。
+    """
+    prev = stam.over_cap(sc)
+    if prev is None:
+        return None
+    for _ in range(max(1, tries) - 1):
+        kit.nap(gap)
+        cur = stam.over_cap(sc)
+        if cur is None:
+            return None
+        if cur == prev:
+            return cur
+        log(f"体力读数在跳变（{prev} → {cur}，疑似结算未刷新）→ 再确认")
+        prev = cur
+    return prev
+
+
 def setup(sc: kit.Screen, stars: int) -> bool:
     """进面板并把上下文摆好（普通模式 + 指定星级材料页签 + 选材料）——**整轮只做一次**。"""
     if not sw.open_panel(sc):
@@ -223,7 +247,8 @@ def run(sc: kit.Screen, args: kit.Args) -> bool:
             reason = r
             break
         ok += 1
-        over = stam.over_cap(sc)            # ⭐ 面板里就地回读（压暗免疫）
+        over = over_cap_stable(sc)          # ⭐ 面板里就地回读（压暗免疫 + 稳定确认）
+        log(f"第 {i} 轮后回读: 超上限={over}")   # 定位过冲用（实跑凭这行看清何时该停）
         if over is None:
             reason = "unreadable"
             break
