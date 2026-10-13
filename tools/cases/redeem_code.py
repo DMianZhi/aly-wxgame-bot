@@ -50,6 +50,7 @@ XY_EXCHANGE = (553, 908)            # 设置面板「兑换」
 XY_INPUT = (422, 766)               # 兑换码输入框
 XY_INPUT_DONE = (316, 864)          # 「输入文字」弹窗的「完成」（确认文字，弹窗关闭）
 XY_CONFIRM = (424, 895)             # 绿色「兑换」键（弹窗关闭后原位）
+XY_DLG_X = (724, 665)               # 兑换码弹窗右上 X（**模态**：必须先关，否则遮罩吃掉面板 X）
 XY_PANEL_X = (750, 347)             # 设置面板右上 X
 
 CODE_RE = re.compile(r"[0-9A-Za-z]{6,12}")
@@ -173,16 +174,21 @@ def close_popups(sc) -> None:
     """处理兑换结果弹层。
 
     - 成功 → 全屏「恭喜获得」页，底部「领取」(claim_btn) → 点它收奖励；
-    - 失败 → 「无效兑换码」弹层，绿「确认」与「兑换」同槽位 (424,895) → 点它关掉；
+    - 失败 → 提示弹层，绿「确认」与「兑换」同槽位 (424,895) → 点它关掉；
+      ⚠ 失败文案**不止一种**（实测：「无效兑换码」/「无法重复使用同一个兑换码」）→ 两个模板都判；
     - 其他（稀有提示）→ popup_blue_x 兜底。
+
+    ⚠ 漏判的后果是**连环失效**（2026-10-13 实测踩到）：弹层没被关掉，模态遮罩会把
+      后续**每一轮**的点击全部吃掉 —— 表现为第 4~5 个码集体哑火、收尾回不了首页。
+    本函数在无弹层时**幂等**（什么都不点），所以 redeem_one 开头也调一次清残层。
     """
     hit = sc.find("claim_btn", 0.90)
     if hit:
         sc.click(hit, "结果：领取(恭喜获得)")
         nap(1.5)
         return
-    if sc.find("rd_invalid_tag", 0.85):
-        sc.click_at(*_g(XY_CONFIRM, sc), "结果：确认(无效兑换码)")
+    if sc.find_any(("rd_invalid_tag", "rd_repeat_tag"), 0.85)[0]:
+        sc.click_at(*_g(XY_CONFIRM, sc), "结果：确认(兑换失败提示层)")
         nap(1.2)
         return
     hit = sc.find("popup_blue_x", 0.90)
@@ -192,7 +198,12 @@ def close_popups(sc) -> None:
 
 
 def redeem_one(sc, code: str, idx: int) -> bool:
-    """输入一个码并点兑换；返回是否兑换成功（有「恭喜获得」页）。"""
+    """输入一个码并点兑换；返回是否兑换成功（有「恭喜获得」页）。
+
+    ⚠ 开头先 close_popups 清残层：上轮万一漏关（新文案/丢点击），模态遮罩会让本轮
+      所有点击失效；无弹层时该函数幂等 → 安全。
+    """
+    close_popups(sc)                                # 清上一轮残留弹层（幂等）
     sc.click_at(*_g(XY_INPUT, sc), "兑换码输入框")
     nap(0.8)
     if not sc.dry and not bot.ime_english(sc.rect, sc.dry):
@@ -213,9 +224,26 @@ def redeem_one(sc, code: str, idx: int) -> bool:
 
 
 def close_panel(sc) -> None:
-    """关兑换码弹窗 + 设置面板。"""
+    """收尾：清结果弹层 → 关兑换码弹窗（模态）→ 关设置面板 → 复查弹层。
+
+    ⚠ 两条实测教训（2026-10-13）:
+      ① **顺序**：兑换码弹窗是模态，遮罩会把「设置面板 X」的点击吃掉 → 必须先关弹窗；
+      ② 「无法重复」弹层漏判会连锁失效 → 收尾前先 close_popups 兜底清一次。
+    ⚠ 不能拿 stage_btn 判「已回首页」：弹层是半透明遮罩，底下的「闯关模式」照样
+      命中（实测 0.971 vs 正常 0.996）→ 会把残留弹层误判成已收尾。
+    """
+    close_popups(sc)                                # 兜底：清掉可能残留的结果弹层
+    sc.click_at(*_g(XY_DLG_X, sc), "关兑换码弹窗")
+    nap(1.0)
     sc.click_at(*_g(XY_PANEL_X, sc), "关设置面板")
     nap(1.2)
+    still = (sc.find_any(("claim_btn", "rd_invalid_tag", "rd_repeat_tag"), 0.85)[0]
+             or sc.find("popup_blue_x", 0.90) is not None)
+    if still:
+        log("⚠ 收尾仍见弹层 → 再关一轮")
+        close_popups(sc)
+        sc.click_at(*_g(XY_PANEL_X, sc), "关设置面板(补)")
+        nap(1.2)
 
 
 # ---------------------------------------------------------------- 主流程

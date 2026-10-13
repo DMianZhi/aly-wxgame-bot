@@ -10,13 +10,17 @@
 覆盖:
     ① 成功路径: 输入框→完成→兑换→**领取**，两张留证
     ② 失败路径: 「无效兑换码」→ 点「确认」(与兑换同槽位)，返回 False 且不炸
-    ③ 多码不中断: 成功/失败/成功 三码跑完，计数 2（单个失败不中断整轮）
-    ④ dry 零点击零写盘
-    ⑤ 剪贴板原文 / --codes 直传 解析（纯函数）
-    ⑥ 并发锁互斥
+    ③ 失败文案②: 「无法重复使用同一个兑换码」(两张提示层图不同) → 同样要点掉
+    ④ 残层清理: 开局就停在残留弹层 → redeem_one 开头先清掉再走流程
+    ⑤ 多码不中断: 成功/失败/成功 三码跑完，计数 2（单个失败不中断整轮）
+    ⑥ 收尾顺序: 先关兑换码弹窗 X、再关设置面板 X（反了会被遮罩吃掉）
+    ⑦ dry 零点击零写盘；⑧ 剪贴板原文 / --codes 直传 解析；⑨ 并发锁互斥
 
 ⚠ 打字/清空/切输入法是**真实副作用**（pyautogui 敲键 + Win32 换输入语言）→ 自检里
   全部打桩，只验用例的点击与分支，绝不真敲键盘、绝不真改系统输入法语言。
+
+⚠ 弹层是半透明遮罩 → 底下的 stage_btn 照样命中（实测 0.971 vs 正常 0.996）→
+  用 stage_btn 判「已回首页」会把残留弹层误判成已收尾（close_panel 已避开这个坑）。
 
 用法:
     uv run python tools/selftest/redeem_code_selftest.py
@@ -39,12 +43,16 @@ GAME_W, GAME_H = 826, 1503      # 夹具真帧尺寸（= 用例坐标基准，�
 PANEL = "_redeemtest_panel.png"
 INPUT = "_redeemtest_input.png"
 OK = "_redeemtest_ok.png"
-BAD = "_redeemtest_bad.png"
+BAD = "_redeemtest_bad.png"            # 「无效兑换码」
+REPEAT = "_redeemtest_repeat.png"      # 「无法重复使用同一个兑换码」
+HOME = "_redeemtest_home.png"
 
 C_INPUT = rc.XY_INPUT            # (422, 766) 输入框
 C_DONE = rc.XY_INPUT_DONE        # (316, 864) 输入弹窗「完成」
 C_CONFIRM = rc.XY_CONFIRM        # (424, 895) 绿「兑换」/「确认」(同槽位)
 C_CLAIM = (423, 1277)            # ok 帧上 claim_btn 命中坐标（本机实测）
+C_DLG_X = rc.XY_DLG_X            # (724, 665) 兑换码弹窗 X
+C_PANEL_X = rc.XY_PANEL_X        # (750, 347) 设置面板 X
 
 
 def _sc(dry: bool = False) -> kit.Screen:
@@ -98,6 +106,31 @@ def case_multi(rp):
     return clicks_ok and count_ok, f"点击={rp.real_clicks}"
 
 
+def case_fail_repeat(rp):
+    """③ 失败文案②：「无法重复使用同一个兑换码」（与「无效兑换码」是两层不同的图）。"""
+    with _stub_typing():
+        ok = rc.redeem_one(_sc(), "DUPTEST", 1)
+    clicks_ok = st.check_clicks("失败文案②", rp.real_clicks,
+                                [C_INPUT, C_DONE, C_CONFIRM, C_CONFIRM])
+    return (not ok) and clicks_ok, f"ok={ok}(期望 False) 点击={rp.real_clicks}"
+
+
+def case_clear_residual(rp):
+    """④ 残层清理：开局帧就是残留弹层 → redeem_one 开头先关掉它，再正常走完。"""
+    with _stub_typing():
+        ok = rc.redeem_one(_sc(), "AFTERDUP", 1)
+    clicks_ok = st.check_clicks("残层清理", rp.real_clicks,
+                                [C_CONFIRM, C_INPUT, C_DONE, C_CONFIRM, C_CONFIRM])
+    return (not ok) and clicks_ok, f"ok={ok}(期望 False) 点击={rp.real_clicks}"
+
+
+def case_close_panel(rp):
+    """⑥ 收尾顺序：先关兑换码弹窗 X → 再关设置面板 X，且复查不误点。"""
+    rc.close_panel(_sc())
+    clicks_ok = st.check_clicks("收尾顺序", rp.real_clicks, [C_DLG_X, C_PANEL_X])
+    return clicks_ok, f"点击={rp.real_clicks}"
+
+
 def case_dry(rp):
     """④ dry：只规划不点击、不落盘。"""
     with _stub_typing():
@@ -134,10 +167,14 @@ def case_lock(rp):
 FOUR = [PANEL, INPUT, PANEL, OK, OK]
 SCENES = [
     ("成功: 输入框→完成→兑换→领取", FOUR, case_success),
-    ("失败: 「无效兑换码」→确认(返回 False 不炸)", [PANEL, INPUT, PANEL, BAD, BAD], case_fail),
+    ("失败①: 「无效兑换码」→确认", [PANEL, INPUT, PANEL, BAD, BAD], case_fail),
+    ("失败②: 「无法重复使用同一个兑换码」→确认", [PANEL, INPUT, PANEL, REPEAT, REPEAT],
+     case_fail_repeat),
+    ("残层清理: 开局带残留弹层", [REPEAT, PANEL, INPUT, PANEL, BAD], case_clear_residual),
     ("多码不中断: 成功/失败/成功", [PANEL, INPUT, PANEL, OK,
                                    PANEL, INPUT, PANEL, BAD,
                                    PANEL, INPUT, PANEL, OK], case_multi),
+    ("收尾顺序: 弹窗X → 面板X", [PANEL, PANEL, HOME], case_close_panel),
     ("dry 零点击零写盘", [PANEL], case_dry),
     ("解析: 剪贴板原文 / --codes 直传", [PANEL], case_parse),
     ("并发锁互斥", [PANEL], case_lock),
@@ -145,7 +182,7 @@ SCENES = [
 
 
 def ensure_fixtures() -> bool:
-    for f in (PANEL, INPUT, OK, BAD):
+    for f in (PANEL, INPUT, OK, BAD, REPEAT, HOME):
         if not (SHOTS_DIR / f).is_file():
             print(f"[SKIP] 缺真帧夹具 {f}")
             return False
@@ -155,4 +192,4 @@ def ensure_fixtures() -> bool:
 if __name__ == "__main__":
     if not ensure_fixtures():
         raise SystemExit(0)
-    st.run_one("redeem_code 离线自检（真帧回放：成功/失败/多码 + 解析 + 锁）", SCENES)
+    st.run_one("redeem_code 离线自检（真帧回放：两种失败文案 + 残层清理 + 收尾顺序）", SCENES)
