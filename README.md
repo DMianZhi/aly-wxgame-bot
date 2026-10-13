@@ -467,7 +467,7 @@ tools/cases/       27 个每日用例: free_stamina, free_sweep, free_gift, free
 tools/crop/        14 个模板裁剪工具: crop_quickadv, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_hyper, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
 tools/selftest/    25 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, ad_text_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, clear_stamina_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, smoke
 tools/maint/       9 个维护工具: capture_fixtures, live_check, battle_watch, close_popup, probe_live, docs, build_digits, build_bscore_digits, build_mcount_digits
-templates/         按钮模板图（251 张，由 crop_* 用例与运行期裁剪产出）
+templates/         按钮模板图（252 张，由 crop_* 用例与运行期裁剪产出）
 shots/             截图：snap_* 校准源、*_selftest 判层夹具、montage 预览、坐标 CSV
 ```
 <!-- END:STRUCTURE -->
