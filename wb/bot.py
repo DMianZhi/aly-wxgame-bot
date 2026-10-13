@@ -291,15 +291,18 @@ def _resize_candidates(w: int, h: int) -> list[tuple[int, int]]:
     return out
 
 
-def match_adaptive(img: np.ndarray, tpl: np.ndarray, threshold: float):
+def match_adaptive(img: np.ndarray, tpl: np.ndarray, threshold: float,
+                   pre=None):
     """窗口尺寸≠基准时多候选重采样取最高分，坐标自动映射回真实客户区。
 
     尺寸一致时走原路径，零额外开销。
+    pre: 可选 (canvas, tpl) -> (canvas', tpl') 预处理钩子，在每个重采样候选上
+    于匹配前调用（字形二值化等「必须先重采样再处理」的匹配走这里）。
     """
     h, w = img.shape[:2]
     cands = _resize_candidates(w, h)
     if len(cands) == 1 and cands[0] == (w, h):   # 尺寸就是基准尺寸，走原路径零开销
-        return match_template(img, tpl, threshold)
+        return match_template(*(pre(img, tpl) if pre else (img, tpl)), threshold)
     order = list(range(len(cands)))
     hint = _GEOM_HINT.get((w, h))
     if hint is not None and hint < len(order):   # 上次成功的假设优先，命中即省下其他候选
@@ -312,7 +315,7 @@ def match_adaptive(img: np.ndarray, tpl: np.ndarray, threshold: float):
         canvas = img if (cw, ch) == (w, h) else cv2.resize(
             img, (cw, ch),
             interpolation=cv2.INTER_AREA if cw < w else cv2.INTER_LINEAR)
-        hit = match_template(canvas, tpl, threshold)
+        hit = match_template(*(pre(canvas, tpl) if pre else (canvas, tpl)), threshold)
         if hit is None:
             continue
         sx, sy = w / cw, h / ch
@@ -335,6 +338,57 @@ def match_adaptive(img: np.ndarray, tpl: np.ndarray, threshold: float):
 TEMPLATE_MIN = {
     "ad_rewarded": 0.93,   # 到账 0.97~1.00 / 播放中 0.87，必须分得开
 }
+
+# ---------------------------------------------------------------- 文字字形识别
+# 微信广告浮层每个广告皮肤都换底色/背景，颜色模板得分漂移 —— 2026-10-13 当日皮肤
+# ad_rewarded_v3 只剩 0.91~0.92，被上面 0.93 闸死 → 广告永远关不掉（当天的
+# 十几张 *_unknown 留证帧全是这一种病根）。而浮层上的**白色文字**（「关闭」「已
+# 获得奖励」）跨皮肤不变，变的只是药丸底色和透出的背景 → 二值化后匹配即免疫换肤。
+# 安全属性在文字层依然成立: 播放中「关闭」二字已经在了（左侧带倒计时数字），
+# 但左药丸没有「已获得奖励」→ 闸门照样拦住（校准见 tools/selftest/ad_text_selftest.py）:
+#   到账帧 ≥0.908 / 播放帧 ≤0.828（关闭）、≤0.802（已获得奖励，"N秒后可获得奖励"蹭分）。
+TEXT_MATCH = {
+    "ad_close": 0.86,
+    "ad_rewarded": 0.86,
+}
+_TXT_Y_MAX = 300     # 浮层药丸只出现在顶部条（基准坐标 y≈100~170），其余涂黑防误配
+
+
+def _bin_glyph(canvas: np.ndarray, tpl: np.ndarray):
+    """白色字形二值化（match_adaptive 的 pre 钩子）。
+
+    阈值 200 + 3x3 膨胀：留抗锯齿余量，把笔画填实（校准扫描结论 th=200/dilate，
+    正负余量两侧最均衡）。画布 y>_TXT_Y_MAX 涂黑 —— 广告浮层之外游戏自己的
+    「关闭」文字按钮不该参与匹配。
+    """
+    b = (cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY) >= 200).astype(np.uint8)
+    b[_TXT_Y_MAX:] = 0
+    t = (cv2.cvtColor(tpl, cv2.COLOR_BGR2GRAY) >= 200).astype(np.uint8)
+    k = np.ones((3, 3), np.uint8)
+    return cv2.dilate(b, k) * 255, cv2.dilate(t, k) * 255
+
+
+def find_on_frame(img: np.ndarray, name: str, threshold: float):
+    """在一帧上找 name（Screen.look 与 find_in_game 的共用入口）。
+
+    颜色变体取最高分；TEXT_MATCH 里的名字再走白色字形路径，**文字命中优先**
+    （换肤免疫的通用路径），颜色变体兜底非文字皮肤（如 ✕ 图标）。
+    """
+    threshold = max(threshold, TEMPLATE_MIN.get(name, 0.0))
+    best = None
+    for tpl in _template_variants(name):
+        hit = match_adaptive(img, tpl, threshold)
+        if hit is not None and (best is None or hit[2] > best[2]):
+            best = hit
+    gate = TEXT_MATCH.get(name)
+    if gate is not None:
+        from .cfg import TEMPLATE_PATH
+        t = cv2.imread(str(TEMPLATE_PATH(name + "_txt")))
+        if t is not None:
+            hit = match_adaptive(img, t, gate, pre=_bin_glyph)
+            if hit is not None:
+                return hit
+    return best
 
 
 def _template_variants(name: str):
@@ -367,15 +421,9 @@ def find_in_game(name: str, rect: WinRect, threshold: float):
     部分模板强制更高阈值(见 TEMPLATE_MIN)：如广告「已获得奖励」在广告还在播时
     会被「N秒后可获得奖励」蹭到 0.87，若用默认 0.86 会提前点关闭，
     触发「暂未获得奖励 是否继续观看视频」弹窗。
+    匹配逻辑统一走 find_on_frame（含白色文字路径）。
     """
-    threshold = max(threshold, TEMPLATE_MIN.get(name, 0.0))
-    img = grab_window(rect)
-    best = None
-    for tpl in _template_variants(name):
-        hit = match_adaptive(img, tpl, threshold)
-        if hit is not None and (best is None or hit[2] > best[2]):
-            best = hit
-    return best
+    return find_on_frame(grab_window(rect), name, threshold)
 
 
 # --------------------------------------------------------------- 拟人点击

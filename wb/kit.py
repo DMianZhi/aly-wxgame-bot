@@ -258,13 +258,7 @@ class Screen:
         floor = self.th if th is None else th
         out: dict = {}
         for n in names:
-            v = max(floor, _bot.TEMPLATE_MIN.get(n, 0.0))
-            best = None
-            for tpl in _bot._template_variants(n):
-                h = _bot.match_adaptive(img, tpl, v)
-                if h is not None and (best is None or h[2] > best[2]):
-                    best = h
-            out[n] = best
+            out[n] = _bot.find_on_frame(img, n, floor)
         return out
 
     def find(self, name: str, th: float | None = None):
