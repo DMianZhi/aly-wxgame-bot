@@ -72,7 +72,7 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 全部脚本在 `tools/` 下按角色分四组；**一个用例一个文件**，互不影响。
 新增用例：① 在对应目录丢一个 `.py`（建议直接抄同组最像的那个当模板）② 在 `wb/registry.py` 登记一行 —— smoke 与本文档会自动跟上。
 
-### 每日用例（`tools/cases/`，27 个）
+### 每日用例（`tools/cases/`，28 个）
 
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
@@ -103,6 +103,7 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 25 | 活跃度奖励 | `uv run python tools/cases/claim_activity.py` | - | `--dry` | 顶栏**第①个**图标(act_entry; 顶栏四图标=①活跃度②邮件③奖励④贵族, 2026-10-10 全探定版) → 活跃度面板(宽橙条=进度条非按钮) → 「领取」钮(act_claim, 700,593) → 恭喜弹窗领取；无可领时按钮变灰→留证收工不算失败 |
 | 26 | 奖励领取 | `uv run python tools/cases/claim_reward.py` | - | `--dry` | 顶栏**第③个**图标(rw_entry, ①任务②邮件都不是——三个都探过) → 奖励面板(X=sweep_close@752,235) → 面板行式「领取」(rw_claim, x=700 列)点**第一个**=游戏自动全领(实测 6 行全橙, 点第 1 行全变灰+恭喜弹窗)；前提=基础任务完成, 无可领时留证收工**不算失败**(rw_claim 天然不命中已领灰行)；这是体力的补给渠道之一(2026-10-10 用户口述) |
 | 27 | 社区奖励(游戏圈点赞/评论+桌面礼包) | `uv run python tools/cases/community_reward.py` | - | `--dry` | 首页「社区奖励」入口(cg_*) → 面板两行: 游戏圈内点赞(0/2)/评论(0/1), 各带「前往」→ 点前往拉起**独立窗口**「微信游戏」(与游戏同 PID, 2099x1312, 只复用 bot.find_game_window) → 游戏圈页签 → 点赞×2(点一个往下翻再点下一个) → 点评论图标开右侧抽屉 → 点输入框 type_text(111) → **打字后才出现的青色「评论」发送键** → 关抽屉 → 右栏「去领取」→ 礼包中心领取 → 回游戏 → 重开面板才会刷新出「领取」(点赞2/2、评论1/1 各一个) → 添加桌面页再领一个 → 回首页。⚠ 四个实测坑(均已固化成防线): ① **已赞图标会变红** → 灰空心 wx_like 匹配不到, 不能拿它当「feed 已加载」判据(备用 wx_comment; 并先滚回 feed 顶部)； ② 抽屉的 X 在 y≈175, 而**窗口自身的 X 在 y≈56** —— 发完评论后抽屉常自动收起, 此时 find 会以 0.915 命中最像的窗口关闭键, 一点就把整个微信窗口关掉(之后抓帧全黑) → 关闭类动作一律加 **y>100 位置守卫**； ③ 「领取」按钮**两页字形/尺寸不同**(游戏圈 144x66 / 添加桌面 238x81, 互匹配仅 0.68) → 两套模板均试(CLAIM_TPLS)； ④ 面板会停在上次的页签 → **无条件点一次「游戏圈」页签**, 否则任务被当成已完成静默跳过。 任务已完成的那一半自动跳过(不重复发公开评论); --skip-wx/--skip-claim/--likes=N 可分段验证 |
+| 28 | 兑换码(工具箱小程序批量复制 → 游戏内兑换) | `uv run python tools/cases/redeem_code.py` | - | `--dry --codes=A,B --all --max=N` | 工具箱小程序「Yang昜工具箱」可在兑换码页批量复制今日失效码 → 读剪贴板解析(哨兵法判成功, 同日重跑内容相同不再误判) → 回游戏 设置/兑换 逐码输入。⚠ 三大坑(2026-10-13 实测): ① **中文输入法会把码劫持成汉字**(输入框出现过 `8SJFTSTY篇N` → 报「无效兑换码」) → 输入前必须切英文(HKL 0x409)；IMM32 路线**无效**(游戏自绘输入框 ImmGetContext 返回 0), 改用 PostMessage(WM_INPUTLANGCHANGEREQUEST) 切语言 → wb/bot.py::ime_english； ② 「输入文字」弹窗**会保留上一轮文字** → 每轮先 clear_text 再输入; ③ 结果两种: 成功=全屏「恭喜获得」页(claim_btn 领取) / 失败=「无效兑换码」弹层(rd_invalid_tag, 绿「确认」与「兑换」同槽位 424,895)。--codes 可直传码跳过小程序段 |
 
 ### 裁剪工具（`tools/crop/`，14 个）
 
@@ -123,7 +124,7 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 13 | 十年集结裁剪 | `uv run python tools/crop/crop_rally.py` | - | `-` | 首页活动卡 + 集结页 + 弹幕面板 |
 | 14 | 逐星补给裁剪 | `uv run python tools/crop/crop_star.py` | - | `-` | 长阶页入口/×5 装置(**必须裁可领态**: 已领后装置整个消失) + 补给面板领5次键/X；两源图分两次 run_crop，另做跨页核验(4 模板在闯关页/首页须 ≤0.86) |
 
-### 测试/自检（`tools/selftest/`，25 个）
+### 测试/自检（`tools/selftest/`，26 个）
 
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
@@ -151,7 +152,8 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 22 | 陨石陷阱闪击离线自检 | `uv run python tools/selftest/meteor_trap_selftest.py` | - | `--dry` | 6 用例（2 张 812x1518 真帧：活动关卡页全页 + 闪击对话框[只开未确认零消耗拍的]）：判层(对话框先于活动页) ＋闪击键锚点落点(564,588) ＋极难页签**预测点点击**(卡1页签默认非选中态, 共享选中模板仅 0.867) ＋跨卡不串台(vs 卡2/卡3 ≤0.14) ＋dry ＋锁 |
 | 23 | --json 契约离线自检 | `uv run python tools/selftest/json_contract_selftest.py` | - | `--dry` | 5 用例（真起子进程 + 分离两条管道，唯一能测到「stdout 干净」的办法）：--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) ＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) ＋人类模式 stdout **完全为空**(日志已全让给 stderr) |
 | 24 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 8 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 23 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) ＋多选勾选渲染(✔) ＋批量汇总面板三态 ＋**批量顺序执行** dry(依序 2/2)；2026-10-11: 菜单换 msvcrt 按键循环 (↑↓移动/空格勾选/a全选/Enter执行勾选/A全选)；2026-10-12: Live 原位重写修闪烁(仅按键后刷新) ＋**维护工具第二段**(背包清理等 9 个进列表) |
-| 25 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
+| 25 | 兑换码离线自检 | `uv run python tools/selftest/redeem_code_selftest.py` | - | `--dry` | 6 用例（4 张 826x1503 真帧：兑换码弹窗/输入文字弹窗/恭喜获得/无效兑换码）：成功路径(输入框→完成→兑换→领取) ＋失败路径(「无效兑换码」→确认, 返回 False 不炸) ＋多码连跑不中断(成功/失败/成功, 计数 2) ＋dry 零点击零写盘 ＋解析(剪贴板原文带「兑换码」标记 / --codes 直传纯列表 / 去重) ＋并发锁；⚠ 打字+切输入法为真实副作用 → 自检全部打桩(stub clear_text/type_text/ime_english) |
+| 26 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
 
 ### 维护工具（`tools/maint/`，9 个）
 
@@ -463,11 +465,11 @@ wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁
 wb/registry.py     用例注册表（清单单一事实源：smoke 校验与 README 清单都读它）
 wb/selftest_kit.py 离线回放脚手架（实测帧 + 点击驱动状态机，零消耗验证分支）
 wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）
-tools/cases/       27 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, clear_stamina, boss_mode, boss_hyper, void_rift, meteor_trap, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, guild_boss, clear_bag, quick_advance, friend_stamina, s_advance, star_supply, endless_world, claim_activity, claim_reward, community_reward
+tools/cases/       28 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, clear_stamina, boss_mode, boss_hyper, void_rift, meteor_trap, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, guild_boss, clear_bag, quick_advance, friend_stamina, s_advance, star_supply, endless_world, claim_activity, claim_reward, community_reward, redeem_code
 tools/crop/        14 个模板裁剪工具: crop_quickadv, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_hyper, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
-tools/selftest/    25 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, ad_text_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, clear_stamina_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, smoke
+tools/selftest/    26 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, ad_text_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, clear_stamina_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, redeem_code_selftest, smoke
 tools/maint/       9 个维护工具: capture_fixtures, live_check, battle_watch, close_popup, probe_live, docs, build_digits, build_bscore_digits, build_mcount_digits
-templates/         按钮模板图（252 张，由 crop_* 用例与运行期裁剪产出）
+templates/         按钮模板图（253 张，由 crop_* 用例与运行期裁剪产出）
 shots/             截图：snap_* 校准源、*_selftest 判层夹具、montage 预览、坐标 CSV
 ```
 <!-- END:STRUCTURE -->

@@ -29,6 +29,9 @@ pyautogui.FAILSAFE = True   # 紧急停止：把鼠标甩到屏幕左上角 (0,0
 pyautogui.MINIMUM_DURATION = 0.08
 pyautogui.MINIMUM_SLEEP = 0.03
 
+_WM_INPUTLANGCHANGEREQUEST = 0x0050   # 请求窗口切换输入语言
+_KLF_ACTIVATE = 0x0001                # LoadKeyboardLayoutW 标志
+
 
 # --------------------------------------------------------------- 窗口与截屏
 
@@ -518,6 +521,51 @@ def type_text(text: str, rect: WinRect, dry_run: bool = False, *, interval: floa
     _guard_click(rect, rect.x + rect.w // 2, rect.y + rect.h // 2)
     time.sleep(0.25)
     pyautogui.write(text, interval=interval)
+
+
+def ime_english(rect: WinRect, dry_run: bool = False) -> bool:
+    """把目标窗口的输入语言切到「英语(美国)」(HKL 0x0409)，幂等，返回是否成功。
+
+    ⚠ 实测坑（2026-10-13 兑换码用例）：中文输入法下 type_text 可能被抾持成汉字
+    （实测输入框出现过 `8SJFTSTY篇N` → 游戏报「无效兑换码」）。
+    IMM32 在这里**无效**：ImmGetContext 返回 0（游戏自绘输入框没有 IME 上下文）。
+    改用 PostMessage(WM_INPUTLANGCHANGEREQUEST, hkl_en) 请求目标窗口换输入语言
+    —— 实测 HKL 0x804 → 0x409，可靠且幂等（不会像单击 Shift 那样反向切回中文）。
+    """
+    if dry_run:
+        return False
+    _ensure_foreground(rect)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.LoadKeyboardLayoutW.argtypes = [wintypes.LPCWSTR, wintypes.UINT]
+        user32.LoadKeyboardLayoutW.restype = wintypes.HKL
+        hkl = user32.LoadKeyboardLayoutW("00000409", _KLF_ACTIVATE)   # 英语(美国)
+        if not hkl:
+            return False
+        hwnd = user32.GetForegroundWindow()
+        user32.PostMessageW(wintypes.HWND(hwnd), _WM_INPUTLANGCHANGEREQUEST,
+                            0, ctypes.c_void_p(hkl))
+        time.sleep(0.4)
+        return True
+    except Exception:
+        return False
+
+
+def clear_text(rect: WinRect, dry_run: bool = False) -> None:
+    """清空当前输入框（全选 + 删除）。与 type_text 同理，键盘输入只走这一层。
+
+    游戏「输入文字」弹窗**会保留上一轮的文字**（实测：不清空 → 多轮输入累积成乱码），
+    所以每轮输入前必须清一次。
+    """
+    if dry_run:
+        return
+    _guard_click(rect, rect.x + rect.w // 2, rect.y + rect.h // 2)
+    time.sleep(0.2)
+    pyautogui.hotkey("ctrl", "a")
+    time.sleep(0.1)
+    pyautogui.press("delete")
 
 
 def drag_xy(x1: int, y1: int, x2: int, y2: int, rect: WinRect, dry_run: bool = False,
