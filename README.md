@@ -129,26 +129,27 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 1 | 转盘离线自检 | `uv run python tools/selftest/free_turn_selftest.py` | - | `--dry` | 7 用例：导航/已在页/免费态/冷却护栏/dry 零副作用/领取/并发锁 |
 | 2 | 兑换星辉离线自检 | `uv run python tools/selftest/free_star_selftest.py` | - | `--dry` | 6 用例：导航/已在页/金币→领取→校验/已领护栏/dry 零副作用/并发锁 |
 | 3 | 寻宝离线自检 | `uv run python tools/selftest/free_treasure_selftest.py` | - | `--dry` | 4 用例：广告中零点击(安全属性)/广告播完才关/按 x 升序双宝箱/dry/并发锁；广告与领取帧为模板合成，底帧为实测帧 |
-| 4 | 免费体力离线自检 | `uv run python tools/selftest/free_stamina_selftest.py` | - | `--dry` | 5 用例：首页假阳性帧(合成 stamina_close 0.897≈实测 0.904)旧判在场/新判不在场＋收尾零点击＋首页仍点体力入口＋真弹窗仍判在场(灰键 0.73 非免费)＋次数耗尽全链路点真 X 收尾；修 POPUP_TH=0.95（默认 0.86 会把首页轮播误判成弹窗） |
-| 5 | 十年集结离线自检 | `uv run python tools/selftest/free_rally_selftest.py` | - | `--dry` | 6 用例：全链路 9 点逐步比对金标准 / 已领跳过 / 未知页中止 / dry / --no-wish / 并发锁 |
-| 6 | BOSS 超限挑战离线自检 | `uv run python tools/selftest/boss_hyper_selftest.py` | - | `--dry` | 7 用例(6 张真帧 + 3 合成)：判页+名条窄 ROI＋确认弹窗 start 优先绝不点蓝X(回归坑①)＋fight_one 主链路＋walk 双向扫掠(#6 反向 6/6)＋**已击败绿标跳过**＋**抗性非125%零出击**(2026-10-11 出击前提反馈回归)＋dry；局内 3 帧为噪声底+真模板合成 |
-| 7 | BOSS 闪击离线自检 | `uv run python tools/selftest/boss_mode_selftest.py` | - | `--dry` | 11 用例：12 张真帧判页（跑生产 page() 本体）＋导航/别站兜回/次数用尽跳过 ＋局内状态机(复活>装备UP>结算)＋技能周期补点＋站内停留 2 次不算打完/3 次算完 ＋dry＋并发锁；局内 3 帧为深底+真模板合成 |
-| 8 | 战队捐献离线自检 | `uv run python tools/selftest/guild_donate_selftest.py` | - | `--dry` | 6 用例（7 张真帧）：四层半透明遮罩判层 + 勾选框颜色三态 + 全链路 10 点比对金标准 + 丢点击重试(领取只点 1 次) + 次数用尽收层 + 未知页零点击 + dry + 并发锁 |
-| 9 | 快速进阶离线自检 | `uv run python tools/selftest/quick_advance_selftest.py` | - | `--dry` | 9 用例(真帧 814x1507 + 改点色合成)：判层专场(8 张真帧，含**二次确认弹窗必须先于详情页**、**结果页暗幕压掉详情标志**两处顺序陷阱) + 绿装判据校准(数字牌绿占比 0.379/0.0，第 4 格白框绿图**不许**算绿装) + 列表扫描落点在行带内 + 数量面板**点到灰即读数**([3,3,5,4] 必须解出 [3,3,5,4]，15 次点击顺序/坐标全对) + 完整一轮真帧回放(25 次点击全链比对，绿槽 +2 恰好 2 次，**绝不点勾选框**) + 绿槽仅 1 件→收手(零进阶、一次 + 都不点) + 去重终止(榨不干的行不重访，扫不到新行即上滑 4 次收手，不是死循环) + dry 零点击零写盘 + 并发锁 |
-| 10 | 战队 BOSS 征讨离线自检 | `uv run python tools/selftest/guild_boss_selftest.py` | - | `--dry` | 13 用例(8 张真帧 + 1 合成)：判层专场(**局内帧必须判 UNKNOWN**、弹层不冒充征讨页) + 50M 槽三态**全真帧**(未达 红点0/绿勾0 · 可领 红点65 · 已领 绿勾486) + 前提闸门(征讨页命中「奖励等级 MAX」/ 结算页的 MAX 100% 进度条必须被 0.90 挡住) + 开局已可领→直接领(**0 次出击**，不浪费次数) + 今日已领→收工 + 未达→出击→达标就领(2 次就收，不打第 3 次) + 未达×3→停手+留证 + 真 sortie(出击→离开页面闸门→局内技能兜底点) + 卡在征讨页→停手留证 + 结算页确定 + 未知页零点击 + dry + 并发锁；出击循环用桩驱动画面推进(真局内由 boss_mode 自检覆盖) |
-| 11 | 扫荡关卡离线自检 | `uv run python tools/selftest/sweep_stage_selftest.py` | - | `--dry` | 15 用例：模式识别/切换＋导航＋4星页签(选中零点击/未选中点中心+20)＋材料优先(#1 点落 178,429、0=全部零点击)＋单轮(双倍+跳过卡不使用+关弹层)＋无翻倍换关＋连续 3 关收工＋背包满重进＋面板误关复查＋异尺寸(RECT=601)换算闸门＋换皮广告变体命中＋dry＋并发锁 |
-| 12 | 无尽模式(世界竞赛)离线自检 | `uv run python tools/selftest/endless_world_selftest.py` | - | `--dry` | 7 用例：①局内未达不拖→达标**复核一轮**才拖（首个达标读数 t≈23s、真拖 t≈34s）②首个读数就达标后回落 → 不许提前拖（只在超时兜底 t≈46s）③全程未达标走超时兜底④结算页「继续」→战绩页「返回」坐标与胜负 ⑤已回世界竞赛页零点击 ⑥dry 零副作用⑦并发锁；⚠ 定时帧 holds[0] 曾被 selftest_kit 瞬跳（已修）+ 断言曾用 epoch 比 BM（已改相对时刻）→ 两处假绿均已修，负向对照（FORCE 恒真/恒假）两项都 FAIL |
-| 13 | 好友体力离线自检 | `uv run python tools/selftest/friend_stamina_selftest.py` | - | `--dry` | 7 用例（4 张当天真帧）：回礼弹窗**只压中屏**(fr_counter/fr_onekey 在弹窗下仍 1.000) → 钉死「先弹窗后页面」判层顺序 + 红角标颜色三态 + 全链路 4 点金标准 + 残留弹窗先收掉/今日已满静默降级(不报错) + 丢点击重试到上限报失败 + 未知页零点击 + dry + 并发锁 |
-| 14 | 逐星补给离线自检 | `uv run python tools/selftest/star_supply_selftest.py` | - | `--dry` | 8 用例（4 张当天真帧 + 2 张恭喜获得帧）：×5 装置「可领(带红点)/已领(装置整个消失)」两态 + **面板半透明压暗**下 ss_entry 仍 0.97 → 钉死「先面板后长阶页」判层顺序 + 领5次全链 4 点金标准(入口/领5次/领取/关闭) + 领5次**无覆盖层且计数未变→不重试**(防重复消耗) + 计数变了视为已领 + ×5 装置不在→跳过不报错 + 装置丢点击重试 + 未知页零点击 + dry + 并发锁 |
-| 15 | 坐标几何离线自检 | `uv run python tools/selftest/geom_selftest.py` | - | `--dry` | 8 用例（无需夹具）：3 个**真帧**校准点(845→755,1296 / 812→738,1293 / 601→546,977)≤1px ＋基准↔客户区往返恒等 ＋标题栏 77px 不缩放 ＋croplab 裁剪与 click_base 点击同几何 ＋同尺寸恒等/退化输入 ＋click_base 端到端 ＋「命中+偏移」的偏移随窗口缩放 ＋用例常量口径审计(四角点 vs 位置+尺寸，混了 ROI 会静默变空)。锁「点歪」「ROI 恒空」两类回归：改成整图等比/混用口径立刻 FAIL |
-| 16 | 导弹猎场闪击离线自检 | `uv run python tools/selftest/missile_hunt_selftest.py` | - | `--dry` | 9 用例（7 张真机真帧 601x1143）：判页专场(含提示层优先/局内帧必须判 unknown) ＋两张卡同款闪击键归属(取离卡标题最近的 421,1003，不选另一张的 421,455) ＋导航 2 点 ＋次数用尽只点绿确认后跳过(不算失败) ＋残留对话框直接闪击 ＋真局内帧不误判收工(且技能走**真模板**命中 546,977) ＋回活动关卡页连续 3 次才算完 ＋dry ＋并发锁；局内 2 帧为灰底+真模板合成 |
-| 17 | 虚空裂隙秘钥工坊离线自检 | `uv run python tools/selftest/void_rift_selftest.py` | - | `--dry` | 5 用例（3 张 812x1518 真帧：关卡页/虚空裂隙页/密钥工坊页）：虚空裂隙卡定位(不混逐星长阶, 间距 132px) ＋秘钥工坊定位 ＋免费钮定位+**同页次高 <0.90**(500💎 同款黄底 0.842, 锁「不误点付费」) ＋dry ＋锁 |
-| 18 | 活跃度奖励离线自检 | `uv run python tools/selftest/claim_activity_selftest.py` | - | `--dry` | 4 用例（2 张 812x1518 真帧）：入口定位(act_entry 187,225) ＋一键领取定位(act_claim 665,1311) ＋dry ＋锁 |
-| 19 | 奖励领取离线自检 | `uv run python tools/selftest/claim_reward_selftest.py` | - | `--dry` | 6 用例（3 张 812x1518 真帧：首页/奖励面板6行全橙/领后全灰）：入口定位 ＋可领检测(find_all=6 行, 首行 700,386) ＋领后不可再命中 ＋无可领路径(留证收工不算失败) ＋dry ＋锁 |
-| 20 | 陨石陷阱闪击离线自检 | `uv run python tools/selftest/meteor_trap_selftest.py` | - | `--dry` | 6 用例（2 张 812x1518 真帧：活动关卡页全页 + 闪击对话框[只开未确认零消耗拍的]）：判层(对话框先于活动页) ＋闪击键锚点落点(564,588) ＋极难页签**预测点点击**(卡1页签默认非选中态, 共享选中模板仅 0.867) ＋跨卡不串台(vs 卡2/卡3 ≤0.14) ＋dry ＋锁 |
-| 21 | --json 契约离线自检 | `uv run python tools/selftest/json_contract_selftest.py` | - | `--dry` | 5 用例（真起子进程 + 分离两条管道，唯一能测到「stdout 干净」的办法）：--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) ＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) ＋人类模式 stdout **完全为空**(日志已全让给 stderr) |
-| 22 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 8 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 23 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) ＋多选勾选渲染(✔) ＋批量汇总面板三态 ＋**批量顺序执行** dry(依序 2/2)；2026-10-11: 菜单换 msvcrt 按键循环 (↑↓移动/空格勾选/a全选/Enter执行勾选/A全选)；2026-10-12: Live 原位重写修闪烁(仅按键后刷新) ＋**维护工具第二段**(背包清理等 9 个进列表) |
-| 23 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
+| 4 | 广告文字识别离线自检 | `uv run python tools/selftest/ad_text_selftest.py` | - | `--dry` | 3 用例（2 套真帧皮肤 + 播放帧）：到账帧走**白色字形路径**点掉广告(2026-10-13 换肤后 ad_rewarded 颜色模板只剩 0.91~0.92 被 0.93 闸死的确切病根) ＋播放帧零点击(播放中「关闭」二字已在，但左药丸没有「已获得奖励」→ 文字闸门拦住) ＋TEXT_MATCH 闸门余量审计(到账/播放两侧 ≥0.02) |
+| 5 | 免费体力离线自检 | `uv run python tools/selftest/free_stamina_selftest.py` | - | `--dry` | 5 用例：首页假阳性帧(合成 stamina_close 0.897≈实测 0.904)旧判在场/新判不在场＋收尾零点击＋首页仍点体力入口＋真弹窗仍判在场(灰键 0.73 非免费)＋次数耗尽全链路点真 X 收尾；修 POPUP_TH=0.95（默认 0.86 会把首页轮播误判成弹窗） |
+| 6 | 十年集结离线自检 | `uv run python tools/selftest/free_rally_selftest.py` | - | `--dry` | 6 用例：全链路 9 点逐步比对金标准 / 已领跳过 / 未知页中止 / dry / --no-wish / 并发锁 |
+| 7 | BOSS 超限挑战离线自检 | `uv run python tools/selftest/boss_hyper_selftest.py` | - | `--dry` | 7 用例(6 张真帧 + 3 合成)：判页+名条窄 ROI＋确认弹窗 start 优先绝不点蓝X(回归坑①)＋fight_one 主链路＋walk 双向扫掠(#6 反向 6/6)＋**已击败绿标跳过**＋**抗性非125%零出击**(2026-10-11 出击前提反馈回归)＋dry；局内 3 帧为噪声底+真模板合成 |
+| 8 | BOSS 闪击离线自检 | `uv run python tools/selftest/boss_mode_selftest.py` | - | `--dry` | 11 用例：12 张真帧判页（跑生产 page() 本体）＋导航/别站兜回/次数用尽跳过 ＋局内状态机(复活>装备UP>结算)＋技能周期补点＋站内停留 2 次不算打完/3 次算完 ＋dry＋并发锁；局内 3 帧为深底+真模板合成 |
+| 9 | 战队捐献离线自检 | `uv run python tools/selftest/guild_donate_selftest.py` | - | `--dry` | 6 用例（7 张真帧）：四层半透明遮罩判层 + 勾选框颜色三态 + 全链路 10 点比对金标准 + 丢点击重试(领取只点 1 次) + 次数用尽收层 + 未知页零点击 + dry + 并发锁 |
+| 10 | 快速进阶离线自检 | `uv run python tools/selftest/quick_advance_selftest.py` | - | `--dry` | 9 用例(真帧 814x1507 + 改点色合成)：判层专场(8 张真帧，含**二次确认弹窗必须先于详情页**、**结果页暗幕压掉详情标志**两处顺序陷阱) + 绿装判据校准(数字牌绿占比 0.379/0.0，第 4 格白框绿图**不许**算绿装) + 列表扫描落点在行带内 + 数量面板**点到灰即读数**([3,3,5,4] 必须解出 [3,3,5,4]，15 次点击顺序/坐标全对) + 完整一轮真帧回放(25 次点击全链比对，绿槽 +2 恰好 2 次，**绝不点勾选框**) + 绿槽仅 1 件→收手(零进阶、一次 + 都不点) + 去重终止(榨不干的行不重访，扫不到新行即上滑 4 次收手，不是死循环) + dry 零点击零写盘 + 并发锁 |
+| 11 | 战队 BOSS 征讨离线自检 | `uv run python tools/selftest/guild_boss_selftest.py` | - | `--dry` | 13 用例(8 张真帧 + 1 合成)：判层专场(**局内帧必须判 UNKNOWN**、弹层不冒充征讨页) + 50M 槽三态**全真帧**(未达 红点0/绿勾0 · 可领 红点65 · 已领 绿勾486) + 前提闸门(征讨页命中「奖励等级 MAX」/ 结算页的 MAX 100% 进度条必须被 0.90 挡住) + 开局已可领→直接领(**0 次出击**，不浪费次数) + 今日已领→收工 + 未达→出击→达标就领(2 次就收，不打第 3 次) + 未达×3→停手+留证 + 真 sortie(出击→离开页面闸门→局内技能兜底点) + 卡在征讨页→停手留证 + 结算页确定 + 未知页零点击 + dry + 并发锁；出击循环用桩驱动画面推进(真局内由 boss_mode 自检覆盖) |
+| 12 | 扫荡关卡离线自检 | `uv run python tools/selftest/sweep_stage_selftest.py` | - | `--dry` | 15 用例：模式识别/切换＋导航＋4星页签(选中零点击/未选中点中心+20)＋材料优先(#1 点落 178,429、0=全部零点击)＋单轮(双倍+跳过卡不使用+关弹层)＋无翻倍换关＋连续 3 关收工＋背包满重进＋面板误关复查＋异尺寸(RECT=601)换算闸门＋换皮广告变体命中＋dry＋并发锁 |
+| 13 | 无尽模式(世界竞赛)离线自检 | `uv run python tools/selftest/endless_world_selftest.py` | - | `--dry` | 7 用例：①局内未达不拖→达标**复核一轮**才拖（首个达标读数 t≈23s、真拖 t≈34s）②首个读数就达标后回落 → 不许提前拖（只在超时兜底 t≈46s）③全程未达标走超时兜底④结算页「继续」→战绩页「返回」坐标与胜负 ⑤已回世界竞赛页零点击 ⑥dry 零副作用⑦并发锁；⚠ 定时帧 holds[0] 曾被 selftest_kit 瞬跳（已修）+ 断言曾用 epoch 比 BM（已改相对时刻）→ 两处假绿均已修，负向对照（FORCE 恒真/恒假）两项都 FAIL |
+| 14 | 好友体力离线自检 | `uv run python tools/selftest/friend_stamina_selftest.py` | - | `--dry` | 7 用例（4 张当天真帧）：回礼弹窗**只压中屏**(fr_counter/fr_onekey 在弹窗下仍 1.000) → 钉死「先弹窗后页面」判层顺序 + 红角标颜色三态 + 全链路 4 点金标准 + 残留弹窗先收掉/今日已满静默降级(不报错) + 丢点击重试到上限报失败 + 未知页零点击 + dry + 并发锁 |
+| 15 | 逐星补给离线自检 | `uv run python tools/selftest/star_supply_selftest.py` | - | `--dry` | 8 用例（4 张当天真帧 + 2 张恭喜获得帧）：×5 装置「可领(带红点)/已领(装置整个消失)」两态 + **面板半透明压暗**下 ss_entry 仍 0.97 → 钉死「先面板后长阶页」判层顺序 + 领5次全链 4 点金标准(入口/领5次/领取/关闭) + 领5次**无覆盖层且计数未变→不重试**(防重复消耗) + 计数变了视为已领 + ×5 装置不在→跳过不报错 + 装置丢点击重试 + 未知页零点击 + dry + 并发锁 |
+| 16 | 坐标几何离线自检 | `uv run python tools/selftest/geom_selftest.py` | - | `--dry` | 8 用例（无需夹具）：3 个**真帧**校准点(845→755,1296 / 812→738,1293 / 601→546,977)≤1px ＋基准↔客户区往返恒等 ＋标题栏 77px 不缩放 ＋croplab 裁剪与 click_base 点击同几何 ＋同尺寸恒等/退化输入 ＋click_base 端到端 ＋「命中+偏移」的偏移随窗口缩放 ＋用例常量口径审计(四角点 vs 位置+尺寸，混了 ROI 会静默变空)。锁「点歪」「ROI 恒空」两类回归：改成整图等比/混用口径立刻 FAIL |
+| 17 | 导弹猎场闪击离线自检 | `uv run python tools/selftest/missile_hunt_selftest.py` | - | `--dry` | 9 用例（7 张真机真帧 601x1143）：判页专场(含提示层优先/局内帧必须判 unknown) ＋两张卡同款闪击键归属(取离卡标题最近的 421,1003，不选另一张的 421,455) ＋导航 2 点 ＋次数用尽只点绿确认后跳过(不算失败) ＋残留对话框直接闪击 ＋真局内帧不误判收工(且技能走**真模板**命中 546,977) ＋回活动关卡页连续 3 次才算完 ＋dry ＋并发锁；局内 2 帧为灰底+真模板合成 |
+| 18 | 虚空裂隙秘钥工坊离线自检 | `uv run python tools/selftest/void_rift_selftest.py` | - | `--dry` | 5 用例（3 张 812x1518 真帧：关卡页/虚空裂隙页/密钥工坊页）：虚空裂隙卡定位(不混逐星长阶, 间距 132px) ＋秘钥工坊定位 ＋免费钮定位+**同页次高 <0.90**(500💎 同款黄底 0.842, 锁「不误点付费」) ＋dry ＋锁 |
+| 19 | 活跃度奖励离线自检 | `uv run python tools/selftest/claim_activity_selftest.py` | - | `--dry` | 4 用例（2 张 812x1518 真帧）：入口定位(act_entry 187,225) ＋一键领取定位(act_claim 665,1311) ＋dry ＋锁 |
+| 20 | 奖励领取离线自检 | `uv run python tools/selftest/claim_reward_selftest.py` | - | `--dry` | 6 用例（3 张 812x1518 真帧：首页/奖励面板6行全橙/领后全灰）：入口定位 ＋可领检测(find_all=6 行, 首行 700,386) ＋领后不可再命中 ＋无可领路径(留证收工不算失败) ＋dry ＋锁 |
+| 21 | 陨石陷阱闪击离线自检 | `uv run python tools/selftest/meteor_trap_selftest.py` | - | `--dry` | 6 用例（2 张 812x1518 真帧：活动关卡页全页 + 闪击对话框[只开未确认零消耗拍的]）：判层(对话框先于活动页) ＋闪击键锚点落点(564,588) ＋极难页签**预测点点击**(卡1页签默认非选中态, 共享选中模板仅 0.867) ＋跨卡不串台(vs 卡2/卡3 ≤0.14) ＋dry ＋锁 |
+| 22 | --json 契约离线自检 | `uv run python tools/selftest/json_contract_selftest.py` | - | `--dry` | 5 用例（真起子进程 + 分离两条管道，唯一能测到「stdout 干净」的办法）：--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) ＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) ＋人类模式 stdout **完全为空**(日志已全让给 stderr) |
+| 23 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 8 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 23 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) ＋多选勾选渲染(✔) ＋批量汇总面板三态 ＋**批量顺序执行** dry(依序 2/2)；2026-10-11: 菜单换 msvcrt 按键循环 (↑↓移动/空格勾选/a全选/Enter执行勾选/A全选)；2026-10-12: Live 原位重写修闪烁(仅按键后刷新) ＋**维护工具第二段**(背包清理等 9 个进列表) |
+| 24 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
 
 ### 维护工具（`tools/maint/`，9 个）
 
@@ -232,7 +233,8 @@ y' = 77 + (y - 77) * s
 
 ## 任务开发 / 模板维护
 
-- 模板库 172 张（含 2 张 `_v2` 变体，如 `ad_close_v2`/`ad_rewarded_v2`），按页面拆九组用例：
+- 模板库 174 张（含 2 张 `_v2` 变体，如 `ad_close_v2`/`ad_rewarded_v2`，及 2 张 `_txt` 白色字形模板
+  `ad_close_txt`/`ad_rewarded_txt`），按页面拆九组用例：
   `tools/crop/crop_home.py`（主界面 23）、`crop_stage.py`（闯关 10）、`crop_boss.py`（BOSS 6）、
   `crop_rift.py`（裂隙 7）、`crop_treasure.py`（寻宝 3：`treasure_help`/`treasure_tab`/`treasure_free`），
   `crop_turn.py`（转盘 4：`turn_daily`/`turn_paid`/`turn_refresh`/`turn_tab`）、
@@ -250,6 +252,12 @@ y' = 77 + (y - 77) * s
   产出 montage 预览图与坐标 CSV。
 - 免费资源七链路要点：
   - 广告流程通用件：`jump_no`（跳过卡弹窗选「不使用」，保住道具）→ `ad_rewarded`（奖励到账，此时 `ad_close` 才可点）→ `ad_close`。
+  - **关闭/到账按钮会换肤**：微信浮层每个广告皮肤底色/背景都不同，颜色模板得分漂移
+    （2026-10-13 皮肤 `ad_rewarded_v3` 只剩 0.91~0.92，被 0.93 闸死 → 广告关不掉）。
+    因此 `ad_close`/`ad_rewarded` 另有**白色字形路径**（`ad_close_txt`/`ad_rewarded_txt` +
+    `bot.TEXT_MATCH` 闸门）：浮层上的白色「关闭」「已获得奖励」文字跨皮肤不变，二值化匹配免疫换肤，
+    文字命中优先、颜色变体兜底（✕ 图标类皮肤）。安全属性不变：播放中「关闭」二字已在（带倒计时），
+    但左药丸没有「已获得奖励」→ 照样不许点。校准/回归见 `tools/selftest/ad_text_selftest.py`。
   - 广告可能全屏在游戏窗口内播放（非外部窗口），且时长 7s~40s 不定，务必以 `ad_rewarded` 出现为可关信号。
   - 礼包「免费」实测有两种形态：免广告直发（点免费→立即「恭喜获得」→`claim_btn`）与看广告形态，脚本两者通吃。
   - 星际探索：面板「快速探索」→ 弹窗内按钮两形态：第 1 次绿色「免费领取」(`exp_free`，免广告直发)，
