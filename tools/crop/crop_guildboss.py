@@ -9,7 +9,12 @@
     templates/gb_go.png     征讨页底部「出击」大键 (也当征讨页标志)
     templates/gb_done.png   结算页「挑战完成」大标题 (局内退出判据)
     templates/gb_ok.png     结算页「确定」键 (点它回征讨页)
+    templates/gb_armed_title.png  每期「本期战术武装」推荐弹窗标题 (2026-10-14；判 ARMED)
     shots/guildboss*_crops.csv / *_montage.png
+
+⚠ 不裁 gb_armed_ok(「知道了」键): 它与「恭喜获得」的「领取」**同款**，
+   在 _claimprobe_t0.png 上假命中 0.946(>阈值) → 无区分度；
+   用例改用「标题位置 + ARMED_OK_DY(730) 偏移」点击（同 free_sweep 的 FREE_BTN_DY 做法）。
 
 坐标基于 814x1507 实测帧（同 845x1521 基准尺度，进代码前用 client_to_ref 归一）。
 
@@ -53,6 +58,8 @@ MAXROW = (50, 375, 212, 32)             # 「奖励等级 MAX」(默认号旁边
 GO = (300, 1348, 240, 62)               # 「出击」键(橙块 bbox 内取含字区)
 DONE_TITLE = (165, 252, 490, 106)       # 「挑战完成」金色大标题
 OK_BTN = (290, 1358, 265, 78)           # 结算页「确定」键
+ARMED = "_gb_armed.png"                 # 831x1506 实测帧: 征讨页 + 「本期战术武装」推荐弹窗
+ARMED_TITLE = (225, 472, 380, 96)       # 弹窗金色标题「本期战术武装」(自匹配 0.985)
 
 # 跨页核验: (模板, 帧, 说明, 期望命中[, 负样本上限])
 # 默认负样本上限 NEG_LIMIT；gb_max 例外: 结算页有「MAX 100%」进度条，实测 0.79 假命中。
@@ -65,16 +72,20 @@ CROSS = [
     ("gb_entry",  PAGE,  "征讨页不该有战队页入口卡标题", False),
     ("gb_go",     PAGE,  "征讨页标志(必须命中)", True),
     ("gb_done",   DONE,  "结算页标志(必须命中)", True),
+    ("gb_armed_title", PAGE, "无弹窗的征讨页不该有武装推荐标题", False),
 ]
 NEG_LIMIT = 0.70                        # 负样本上限(默认)
 
 
 def cross_check() -> int:
-    """跨页区分度核验: 打印关键分数, 返回失败数。"""
+    """跨页区分度核验: 打印关键分数, 返回失败数。缺帧则跳过（历史夹具已丢）。"""
     print("--- 跨页核验 ---")
     bad = 0
     for name, shot, note, want_hit, *lim in CROSS:
         img = cv2.imread(str(SHOTS_DIR / shot))
+        if img is None:
+            print(f"[SKIP] 缺帧 {shot}（跳过 {name} 核验）")
+            continue
         score, cx, cy = _match_one(img, TEMPLATES_DIR / f"{name}.png")
         cap = lim[0] if lim else NEG_LIMIT
         ok = (score >= 0.90) if want_hit else (score <= cap)
@@ -92,19 +103,37 @@ def cross_check() -> int:
     return bad
 
 
+def _have(shot: str) -> bool:
+    return (SHOTS_DIR / shot).is_file()
+
+
 def main() -> int:
     weak = 0
-    weak += run_crop(
+    if _have(ARMED):
+        weak += run_crop(
+            {"gb_armed_title": (*ARMED_TITLE, "每期「本期战术武装」推荐弹窗标题(判 ARMED)")},
+            tag="guildboss_armed", shot=ARMED, reuse=["gb_go"],
+        )
+    else:
+        print(f"[SKIP] 缺帧 {ARMED}（跳过武装弹窗裁剪）")
+    for shot in (GUILD, PAGE, DONE):
+        if not _have(shot):
+            print(f"[SKIP] 缺帧 {shot}（历史夹具已丢 → 对应裁剪/核验跳过；"
+                  f"参见 tools/selftest/guild_boss_selftest.py 的「武装推荐弹窗专项」）")
+    if _have(GUILD):
+        weak += run_crop(
         {"gb_entry": (*ENTRY, "战队页「BOSS征讨」卡标题(避开红点/状态字)")},
         tag="guildboss_guild", shot=GUILD, reuse=["ral_back", "nav_home"],
     )
-    weak += run_crop(
+    if _have(PAGE):
+        weak += run_crop(
         {"gb_max": (*MAXROW, "征讨页「奖励等级 MAX」(用例前提判据)"),
          "gb_go": (*GO, "征讨页底部「出击」大键(也是页面标志)")},
         tag="guildboss_page", shot=PAGE,
         stations=["gb_max", "gb_go"], reuse=["wc_res_back", "boss_warehouse"],
     )
-    weak += run_crop(
+    if _have(DONE):
+        weak += run_crop(
         {"gb_done": (*DONE_TITLE, "结算页「挑战完成」大标题(局内退出判据)"),
          "gb_ok": (*OK_BTN, "结算页「确定」键")},
         tag="guildboss_done", shot=DONE,

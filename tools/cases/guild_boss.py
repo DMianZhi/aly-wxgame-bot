@@ -3,6 +3,8 @@
 
     链路:
     首页 --(gd_entry 战队)--> 战队页 --(gb_entry BOSS征讨)--> 征讨页
+    -->【弹窗】每期征讨开启时(如新的一周)会弹「本期战术武装」推荐 → 点「知道了」关掉
+        ⚠ 它遮住 gb_max(奖励等级 MAX)那行、但底部「出击」露在外 → 不识别就会误判非 MAX 停手
     -->【前提】gb_max 命中(奖励等级 MAX)；不命中 → 立即停手(非 MAX 的号按约定要手打)
     --> 50M 槽已可领(红点)? → 直接领下(不浪费今天的出击次数)
     --> 出击(gb_go) → 局内(wb.battle.fight) → 结算页「挑战完成」(gb_done) → 确定(gb_ok)
@@ -46,6 +48,8 @@ from wb.kit import log  # noqa: E402
 TH = 0.86                # 通用阈值
 TH_MAX = 0.90            # 「奖励等级 MAX」: 结算页有 MAX 100% 进度条(0.79) → 抬高
 TH_CLAIM = 0.92          # 「领取」键: 多页同款，抬到 0.92 防串台(弹层实测 0.945)
+TH_ARMED = 0.86          # 「本期战术武装」推荐弹窗标题(弹窗帧实测 0.966~0.985 / 无弹窗帧 None)
+ARMED_OK_DY = 730        # 「知道了」键相对标题中心的纵向偏移(量自 831x1506 实帧)
 FIGHT_TIMEOUT = 300      # 单次出击局内最长等待(自检会改小)
 MAX_TRIES = 3            # 今日挑战次数上限(游戏侧 3 次/天)
 DOT_MIN = 20             # 50M 槽红点像素阈值(实测未领 65 / 已领 0)
@@ -64,9 +68,11 @@ D50_ICON = _bot.measured_rect(646, 1152, 122, 64, (814, 1507))   # 图标盘面(
 D50_XY = _bot.client_to_ref(707, 1184, 814, 1507)                # 点击点(基准口径)
 
 HOME, GUILD, PAGE, DONE, POPUP, UNKNOWN = ("HOME", "GUILD", "PAGE", "DONE", "POPUP", "?")
+ARMED = "ARMED"          # 每期开了弹的「本期战术武装」推荐弹窗(2026-10-14 新增)
 
 PLAN = """[dry] 计划:
   首页 --(gd_entry 战队)--> 战队页 --(gb_entry BOSS征讨)--> 征讨页
+  -->【弹窗】每期开启会有「本期战术武装」推荐 → 点「知道了」关掉(gb_armed_title + 偏移)
   -->【前提】gb_max 命中「奖励等级 MAX」(不命中则停手，非 MAX 的号要手打)
   --> 50M 槽已可领(红点) → 直接领；今日已领(绿勾) → 直接收工
   --> 出击(gb_go) → 局内每 5.2s 点右下角技能(换皮但同位置) → 阵亡钻石复活 → 装备UP
@@ -90,13 +96,22 @@ def _hit(st: dict, name: str, th: float = TH) -> bool:
 
 
 def page(sc: kit.Screen) -> str:
-    """当前页面: popup(恭喜获得) > done(结算页) > page(征讨页) > guild > home > unknown。
+    """当前页面: popup(恭喜获得) > armed(武装推荐) > done(结算页) > page(征讨页) > guild > home > unknown。
 
     判层顺序要紧: 「恭喜获得」是全屏暗幕, 会把底下的页面标志压掉(gb_go 掉到 0.407、
     gb_max 0.755) —— 用 claim_btn 命中且 gb_go 不命中来认它。
     首页标志只能用 stage_btn(闯关模式)；gd_entry 只当点击目标(首页 1.000)。
+
+    ⚠ 2026-10-14 新增 ARMED: 每期征讨开启时(如新的一周)进页会弹「本期战术武装」推荐，
+      它**遮住 gb_max(奖励等级 MAX)那一行**，但底部「出击」还露在外(gb_go 0.985) ——
+      旧判层会判成 PAGE → 接着 gb_max 不命中 → 误判「奖励等级不是 MAX」直接停手。
+      留证 _guildboss_page_state.png / _guildboss_not_max.png 实测 title=0.98/0.97 就是它。
+      判据**必须在 PAGE 之前**（弹窗在场时 gb_go 照样命中）。
     """
-    st = sc.look("claim_btn", "gb_done", "gb_go", "gb_entry", "gd_entry", "stage_btn")
+    st = sc.look("gb_armed_title", "claim_btn", "gb_done", "gb_go", "gb_entry",
+                 "gd_entry", "stage_btn")
+    if _hit(st, "gb_armed_title", TH_ARMED):
+        return ARMED
     if _hit(st, "claim_btn", TH_CLAIM) and not _hit(st, "gb_go"):
         return POPUP
     if _hit(st, "gb_done"):
@@ -138,12 +153,23 @@ def reward_state(sc: kit.Screen) -> str:
 
 
 def enter_page(sc: kit.Screen) -> bool:
-    """从任意页进到征讨页: 首页→战队页→征讨页；残留弹层/结算页顺手收掉。"""
-    for _ in range(5):
+    """从任意页进到征讨页: 首页→战队页→征讨页；残留弹层/结算页/武装推荐顺手收掉。"""
+    for _ in range(6):                       # 首页→战队→征讨→(弹窗) 最多 4 步, 留余量
         p = page(sc)
         log(f"当前页面: {p}")
         if p == PAGE:
             return True
+        if p == ARMED:                       # 每期开启的「本期战术武装」推荐弹窗
+            t = _find(sc, "gb_armed_title", TH_ARMED)
+            if t is None:
+                log("武装推荐弹窗在场但找不到标题(异常)")
+                sc.shot("fail_armed")
+                return False
+            # 「知道了」按钮与「恭喜获得」的「领取」**同款**(在 _claimprobe_t0 上 0.946
+            #   假命中) → 不裁按钮模板, 用标题位置 + 固定偏移点(同 free_sweep 的 FREE_BTN_DY)
+            sc.click_at(t[0], t[1] + ARMED_OK_DY, "知道了(武装推荐)")
+            kit.nap(2.0)
+            continue
         if p == POPUP:                       # 残留「恭喜获得」: 先领掉
             c = _find(sc, "claim_btn", TH_CLAIM)
             if c is None:

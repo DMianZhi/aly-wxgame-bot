@@ -47,6 +47,8 @@ POP = "_expl_expl_claim1.png"           # 真帧: 恭喜获得弹层
 DN = "_expl_expl_w6.png"                # 真帧: 结算页「挑战完成」
 BAT = "_expl_expl_inbattle.png"         # 真帧: 局内
 PEND = "_expl_expl_bossguild.png"       # 真帧: 征讨页·开战前(今日伤害 0)= 未达 50M
+ARG = "_gb_armed.png"                 # 真帧: 征讨页 + 「本期战术武装」推荐弹窗(2026-10-14)
+PAG2 = "_gb_armed_after.png"          # 真帧: 点「知道了」关掉弹窗后的征讨页(同一次实测)
 UNK = "_ts_gbb_unknown.png"             # 合成: 纯深色未知页
 LAYERS = [HM, GD, P1, P2, POP, DN, BAT, UNK]
 
@@ -264,7 +266,44 @@ def ensure_fixtures() -> bool:
     return True
 
 
+def case_armed_page(rp):
+    """⑩ 「本期战术武装」推荐弹窗在场 → 必须判 ARMED（旧代码会误判 PAGE）。
+
+    ⭐ 2026-10-14 回归: 每期征讨开启(如新的一周)进页会弹这个推荐弹窗，它**遮住
+      gb_max(奖励等级 MAX)那一行**、但底部「出击」还露在外(gb_go≈0.99) → 旧判层
+      判成 PAGE → 接着 gb_max 不命中 → 误判「奖励等级不是 MAX」直接停手。
+      留证 _guildboss_page_state.png / _guildboss_not_max.png 实测标题 0.98/0.97 就是它。
+    """
+    sc = _sc()
+    p = gb.page(sc)
+    print(f"[{'ok  ' if p == gb.ARMED else '!!  '}] page={p} (期望 ARMED)")
+    return p == gb.ARMED, f"page={p}"
+
+
+def case_armed_close(rp):
+    """⑩b 点「知道了」关掉弹窗 → 回到征讨页，且 gb_max 恢复命中(=确实是 MAX 号)。"""
+    sc = _sc()
+    ok = gb.enter_page(sc)
+    p = gb.page(sc)
+    mx = gb._find(sc, "gb_max", gb.TH_MAX)
+    good1 = ok and p == gb.PAGE
+    print(f"[{'ok  ' if good1 else '!!  '}] enter_page={ok} page={p} (期望 True / PAGE)")
+    print(f"[{'ok  ' if mx else '!!  '}] gb_max={None if mx is None else round(mx[2], 3)} "
+          f"(期望 ≥{gb.TH_MAX}: 关掉遮挡后必须恢复)")
+    return good1 and mx is not None, \
+        f"page={p} gb_max={None if mx is None else round(mx[2], 3)}"
+
+
+ARMED_SCENES = [
+    ("⑩ 武装推荐弹窗 → 判 ARMED（旧代码误判 PAGE）", [ARG], case_armed_page),
+    ("⑩b 点「知道了」关弹窗 → 回征讨页 + gb_max 恢复", [ARG, PAG2], case_armed_close),
+]
+
+
 if __name__ == "__main__":
+    # ⭐ 武装推荐弹窗专项**先跑**: 只依赖本轮新帧，历史夹具缺失也不影响它
+    st.run_one("guild_boss 离线自检 · 武装推荐弹窗专项（2026-10-14）", ARMED_SCENES)
     if not ensure_fixtures():
+        print("[SKIP] 历史场景（真帧夹具缺失，仅跑上方专项目）")
         raise SystemExit(0)
     st.run_one("guild_boss 离线自检（真帧回放: 三态/闸门/循环/出击闸门）", SCENES)
