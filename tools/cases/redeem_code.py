@@ -24,6 +24,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 import time
@@ -40,16 +41,24 @@ from wb.kit import log, nap  # noqa: E402
 
 # ---- 实测基准尺寸 ------------------------------------------------
 GAME_W, GAME_H = 826, 1503          # 游戏客户区（实测）
-TOOL_W, TOOL_H = 1455, 1369         # 小程序客户区（实测，稳定态）
-TOOL_PANE = 728                     # 小程序内容画布宽（右半）
+# ⚠ 2026-10-14 复测更正: 小程序**真实窗口宽 731**（≈ TOOL_PANE 728）。旧值 1455 把
+#   「小程序窗口 + 右侧游戏区」一起抓进来了（grab_window 拓超）→ 按 1455 换算时 x 被
+#   缩掉一半（365 → 183），点入口打在空白上、永远进不了兑换码页（用户实跑多次失败的真因）。
+#   实测：窗口稳定在 (731, 1369) at (917, 70)，且 100s 内不再变化。
+TOOL_W, TOOL_H = 731, 1369          # 小程序客户区（实测，稳定态）
+TOOL_PANE = 728                     # 小程序内容画布宽
 
 TOOL_TITLE = "Yang昜工具箱"
+TOOL_LNK = Path(r"C:\Users\21908\Desktop\Yang昜工具箱.lnk")   # 小程序桌面快捷方式
+TOOL_WAIT = 75.0                    # 冷启动等待上限(微信拉起小程序 10~40s, 留足余量)
 
 # ---- 小程序坐标（客户区实测，已含右半偏移）------------------------
-XY_HOME_CODE_ENTRY = (365, 700)     # 首页「雷霆兑换码」入口（左半，首页所在画布）
-XY_BATCH_COPY = (983, 1300)         # 底部工具栏「批量复制」
-XY_COPY_SELECTED = (1104, 785)      # 弹窗「复制所选内容」
-XY_BATCH_CLOSE = (1104, 872)        # 弹窗「关闭」
+# ⚠ 2026-10-14 全部重标（小程序真实窗口 731×1369）：旧值按误测的 1455 基准标注，
+#   除 XY_HOME_CODE_ENTRY 恰好落在窗口内，其余 x 均 >731 → 永远点不到。
+XY_HOME_CODE_ENTRY = (365, 700)     # 首页「雷霆兑换码」入口（实测有效）
+XY_BATCH_COPY = (268, 1330)         # 底部工具栏「批量复制」（实测）
+XY_COPY_SELECTED = (378, 768)       # 弹窗「复制所选内容」（实测；「今日失效」默认已勾选）
+XY_BATCH_CLOSE = (378, 857)         # 弹窗「关闭」（实测）
 
 # ---- 游戏坐标（客户区实测 @826x1503）------------------------------
 XY_SETTING = (745, 1226)            # 首页右下角齿轮(设置)
@@ -71,21 +80,52 @@ def _px(xy: tuple[int, int], w: int, h: int, bw: int, bh: int) -> tuple[int, int
     return round(xy[0] * w / bw), round(xy[1] * h / bh)
 
 
-def tool_screen(dry: bool = False):
-    """找小程序窗口；等尺寸连续两次一致（加载期会从窄变宽）。"""
+def tool_screen(dry: bool = False, wait: float = 20.0):
+    """找小程序窗口；等它**稳定在就绪尺寸**（加载期会从窄变宽：728 → 1455）。
+
+    wait: 最多等多少秒 —— 冷启动（刚拉起微信小程序）比就绪态久得多，故可调大。
+
+    ⚠ 2026-10-14 踩坑（自动启动小程序后**必失败**的真因）：旧逻辑「尺寸连续两次一致就
+      返回」会在**加载中间态 728 宽**上提前返回（728 能稳定好几秒且尺寸前后一致），
+      于是坐标按 728 换算 → 点 (183,699) 打到空白（正确应 365）→ 永远进不了兑换码页。
+      → 改为**必须达到就绪宽度**（TOOL_W 的 95%）才认，且仍需连续两次一致。
+    """
     rect = None
-    for _ in range(20):
+    deadline = time.monotonic() + max(wait, 2.0)
+    while time.monotonic() < deadline:
         cur = bot.find_game_window(TOOL_TITLE)
         if cur is None:
             if dry:
                 break
             nap(1.0)
             continue
-        if rect is not None and (cur.w, cur.h) == (rect.w, rect.h):
+        ready = cur.w >= TOOL_W * 0.95        # 必须是就绪宽度, 不是加载中间态(728)
+        if ready and rect is not None and (cur.w, cur.h) == (rect.w, rect.h):
             return kit.Screen(cur, dry=dry, prefix="rd_")
         rect = cur
         nap(1.0)
     return kit.Screen(rect, dry=dry, prefix="rd_") if rect else None
+
+
+def launch_tool(dry: bool = False) -> bool:
+    """自动拉起工具箱小程序（双击桌面快捷方式）—— 用例应自己启动，别让人先手动开。
+
+    ⚠ 2026-10-14 用户要求：批量跑时小程序没开就 code=1 失败，应自己启动。
+    dry 模式只打印计划不真启动；快捷方式不存在则提示手动打开。
+    """
+    if not TOOL_LNK.exists():
+        log(f"⚠ 桌面快捷方式不存在: {TOOL_LNK} → 请手动打开小程序")
+        return False
+    log(f"小程序未开 → 自动启动: {TOOL_LNK.name}")
+    if dry:
+        log("[dry] 跳过实际启动")
+        return True
+    try:
+        os.startfile(str(TOOL_LNK))          # Windows: 交 shell 关联打开 .lnk
+    except Exception as e:                   # noqa: BLE001
+        log(f"⚠ 启动失败: {e}")
+        return False
+    return True
 
 
 def parse_codes(text: str) -> list[str]:
@@ -154,13 +194,24 @@ def batch_copy(sc, wait: float = 8.0) -> list[str]:
 
 
 def ensure_code_page(sc) -> bool:
-    """确保小程序停在「兑换码」列表页：用「今晚失效」标签模板判页。"""
+    """确保小程序停在「兑换码」列表页：用「今晚失效」标签模板判页。
+
+    ⚠ 2026-10-14 用户要求「用例自己启动小程序」后跏到的坑：自动启动后窗口很快出现，
+      但**内容还在加载** —— 旧代码只点一次、只等 3s 就判失败（实跑点完只隔 2s 就报
+      「看不到今晚失效标签」）。改为「点入口 → 轮询等标签就绪 → 没出来就再点」。
+    """
     if sc.find("rj_expire_tag") is not None:
         log("小程序已在兑换码页")
         return True
-    sc.click_at(*_px(XY_HOME_CODE_ENTRY, sc.w, sc.h, TOOL_W, TOOL_H), "雷霆兑换码")
-    nap(3.0)
-    return sc.find("rj_expire_tag") is not None
+    for attempt in range(3):
+        sc.click_at(*_px(XY_HOME_CODE_ENTRY, sc.w, sc.h, TOOL_W, TOOL_H),
+                    "雷霆兑换码" + ("" if attempt == 0 else f"·重试{attempt + 1}"))
+        for _ in range(12):                  # 最多等 ~24s（冷启动后小程序还在渲染）
+            nap(2.0)
+            if sc.find("rj_expire_tag") is not None:
+                return True
+        log("⚠ 已点入口但 24s 内没看到「今晚失效」标签 → 再试一次")
+    return False
 
 
 # ---------------------------------------------------------------- 游戏
@@ -265,8 +316,16 @@ def run(sc, args) -> bool:                              # noqa: C901
             return False
     else:
         tsc = tool_screen(args.dry)
+        if tsc is None and not args.dry:
+            # ⭐ 用户要求(2026-10-14): 小程序没开就**自己拉起**（桌面快捷方式），
+            #   别让人先手动开——之前没开就 code=1 失败。
+            if launch_tool(dry=False):
+                tsc = tool_screen(dry=False, wait=TOOL_WAIT)
         if tsc is None:
-            log("✗ 找不到工具箱小程序窗口（Yang昜工具箱）")
+            if args.dry:
+                log("[dry] 小程序未开（实跑时会自动启动）→ 计划模式直接结束")
+                return True
+            log("✗ 找不到工具箱小程序窗口（Yang昜工具箱）→ 请确认微信已登录")
             return False
         if not ensure_code_page(tsc):
             log("✗ 未能进入小程序兑换码页（看不到「今晚失效」标签）")

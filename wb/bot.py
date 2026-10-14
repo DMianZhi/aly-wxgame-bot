@@ -25,7 +25,11 @@ except Exception:
     except Exception:
         pass
 
-pyautogui.FAILSAFE = True   # 紧急停止：把鼠标甩到屏幕左上角 (0,0)
+pyautogui.FAILSAFE = False   # ⚠ 不能用 pyautogui 的内置急停: 它把**四个角**都当急停点,
+#   而**右上角 (W-1, 0) 正是系统「关闭/最大化」按钮的位置** —— 用户用电脑点一下关闭、
+#   鼠标停在右上角, 之后 **每次 moveTo 都立即抛 FailSafeException**。
+#   （2026-10-14 实测鼠标 (2559,0) 就连崩 4 个用例、每个 ~12s。）
+#   → 改用下面 _failsafe_check(): **只认左上角**, 与设计原意（“鼠标甩到左上角”）一致。
 pyautogui.MINIMUM_DURATION = 0.08
 pyautogui.MINIMUM_SLEEP = 0.03
 
@@ -432,7 +436,29 @@ def find_in_game(name: str, rect: WinRect, threshold: float):
 # --------------------------------------------------------------- 拟人点击
 
 def configure_mouse(dry_run: bool) -> None:
-    pyautogui.FAILSAFE = not dry_run  # dry-run 是无头测试，别让 FAILSAFE 误触发
+    # 自定义急停(只认左上角)已接管 → 保持 pyautogui 内置四角急停**关闭**（见模块顶部说明）。
+    # dry-run 本来就不动鼠标，无需特殊处理。
+    pyautogui.FAILSAFE = False
+
+
+FAILSAFE_PX = 4             # 鼠标落在左上角这么大范围内 = 急停手势
+
+
+def _failsafe_check() -> None:
+    """自定义急停：**只认屏幕左上角**（用户约定「鼠标甩到左上角」）。
+
+    ⚠ 为什么不用 pyautogui.FAILSAFE: 它把**四个角**都当急停点, 而右上角 (W-1, 0)
+      正是系统「关闭/最大化」按钮的位置 —— 用户用电脑点一下关闭、鼠标停在右上角,
+      之后每次 moveTo 都立即抛 FailSafeException（2026-10-14 批量跑**连环崩 4 个用例**
+      的真因: 实测鼠标 (2559,0)，每个用例 12s 就崩）。
+    """
+    try:
+        x, y = pyautogui.position()
+    except Exception:                        # 取不到位置就当没急停
+        return
+    if x <= FAILSAFE_PX and y <= FAILSAFE_PX:
+        raise pyautogui.FailSafeException(
+            f"急停: 鼠标在屏幕左上角 ({x},{y}) → 用户要求停止")
 
 
 def _ensure_foreground(rect: WinRect) -> bool:
@@ -630,6 +656,7 @@ def click_xy(cx: int, cy: int, jitter: int, delay: tuple[float, float],
     jy = cy + rect.y + random.randint(-jitter, jitter)
     if dry_run:
         return
+    _failsafe_check()                        # 自定义急停(只认左上角, 见模块顶部说明)
     _guard_click(rect, jx, jy)
     pyautogui.moveTo(jx, jy, duration=random.uniform(0.08, 0.16))
     time.sleep(random.uniform(0.02, 0.05))
