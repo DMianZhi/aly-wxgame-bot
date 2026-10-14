@@ -61,7 +61,11 @@ CASES = [
     _e("free_sweep", "免费扫荡卡", DAILY, quota="5/日", flags="--dry --max=N", kit=True,
        note="卡4 的免费按钮无模板 → 由卡图标中心下移 128px 算出；只吃第 4 个免费位; "
             "2026-10-11 实测: 次数用尽时 card4 卡片**仍在**(倒计时态)、只有免费钮消失, "
-            "点空白无广告 → 放弃本轮 code=1(正确降级, README 旧说法「card4 不再出现」不成立)"),
+            "点空白无广告 → 放弃本轮 code=1(正确降级, README 旧说法「card4 不再出现」不成立); "
+            "⭐ 2026-10-14: 广告段原自写一套(等 ad_close → 等 ad_rewarded → 关 → 领) → "
+            "改走 kit.play_ad（与 free_stamina 同一个病根：只等 ad_rewarded 会漏掉「关闭」和 "
+            "「领取」）；实跑 3/3 轮全过：ad_close t≈5s → ad_reward t≈28s → 点关闭(782,128) → "
+            "claim t≈37s → 点领取(425,1278) → 回商城"),
     _e("free_gift", "商城免费礼包", DAILY, quota="1/日", kit=True,
        note="免广告直发 / 看广告两形态都要兼容"),
     _e("free_explore", "星际探索", DAILY, flags="--dry --max=N", kit=True,
@@ -296,11 +300,12 @@ SELFTESTS = [
             "(2026-10-13 换肤后 ad_rewarded 颜色模板只剩 0.91~0.92 被 0.93 闸死的确切病根) "
             "＋播放帧零点击(播放中「关闭」二字已在，但左药丸没有「已获得奖励」→ 文字闸门拦住) "
             "＋TEXT_MATCH 闸门余量审计(到账/播放两侧 ≥0.02)"),
-    _e("ad_close_selftest", "广告页兜底关闭自检", SELFTEST, kit=True,
-       note="8 用例：播完页(今日/旧皮肤)→点「关闭」且点击只落顶部浮层、播放中页同样能关、"
+    _e("ad_close_selftest", "广告全链路离线自检", SELFTEST, kit=True,
+       note="11 用例：播完页(今日/旧皮肤)→点「关闭」且点击只落顶部浮层、播放中页同样能关、"
             "首页帧零点击、goto_home 遇广告页自愈回首页、纯广告页点关闭而非「停手」、"
-            "「恭喜获得」页点领取、goto_home 遇结算页自愈；"
-            "回归 2026-10-14 病根(只等 ad_rewarded → 永不点关闭 → 连坐后续用例)"),
+            "「恭喜获得」页点领取、goto_home 遇结算页自愈、play_ad 全链路(入口→关闭→领取→回业务页)、"
+            "入口不存在→no_entry 零点击、点了没广告→no_ad fail fast；"
+            "回归 2026-10-14 病根(只等 ad_rewarded → 永不点关闭/领取 → 连坐后续用例)"),
     _e("free_stamina_selftest", "免费体力离线自检", SELFTEST, kit=True,
        note="5 用例：首页假阳性帧(合成 stamina_close 0.897≈实测 0.904)旧判在场/新判不在场＋收尾零点击"
             "＋首页仍点体力入口＋真弹窗仍判在场(灰键 0.73 非免费)＋次数耗尽全链路点真 X 收尾；"

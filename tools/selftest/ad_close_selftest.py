@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""离线自检: 广告页兜底关闭 + 收尾自愈（2026-10-14 病根回归）。
+"""离线自检: 广告全链路（入口→关闭→领取）+ 收尾自愈（2026-10-14 病根回归）。
 
 病根（真跑实测，用户口径 + 留证帧双证）:
     微信广告**每次换背景图**，而「已获得奖励」在**部分皮肤上压根不出现**。
@@ -21,6 +21,9 @@
     ⑤ 纯广告页     → 必须点「关闭」而不是直接「停手」（旧行为就是停手）
     ⑥ 「恭喜获得」结算页 → 点「领取」（漏了这步同样卡死: 该页没返回键）
     ⑦ goto_home 遇结算页 → 先领取、再回首页
+    ⑧ play_ad 全链路（通用入口） → 点入口 → 广告 → 点关闭 → 领取 → 回业务页
+    ⑨ 入口不存在     → 'no_entry' 且零点击（次数用尽时不乱点）
+    ⑩ 点了入口没广告 → 'no_ad' fail fast（不白等到超时）
 
 夹具（真帧；缺了 → SKIP）:
     _fs_fs_timeout2.png        2026-10-14 真跑留证（广告播完待关闭, 833x1515）
@@ -125,6 +128,34 @@ def scene_goto_home_claim(rp):
     return good, f"goto_home={ok} 点击={len(rp.events)}（期望 True 且先点领取）"
 
 
+def scene_play_ad_ok(rp):
+    """⑧ play_ad 全链路: 点入口 → 广告 → 点「关闭」→ 领取 → 回业务页。
+
+    序列: 广告页 →(点入口) 恭喜获得页 →(点领取) 首页。
+    """
+    sc = kit.open_screen(th=0.86, prefix="_adc_self")
+    res = kit.play_ad(sc, page="stage_btn", pos=(700, 1200), label="测试", timeout=20.0)
+    ok = res == "ok" and len(rp.events) >= 2
+    return ok, f"res={res} 事件={rp.events}（期望 ok 且至少点入口+领取两次）"
+
+
+def scene_play_ad_no_entry(rp):
+    """⑨ 入口不存在 → 'no_entry' 且零点击（次数用尽时不能乱点）。"""
+    sc = kit.open_screen(th=0.86, prefix="_adc_self")
+    res = kit.play_ad(sc, page="stage_btn", entry="stamina_free")
+    ok = res == "no_entry" and len(rp.events) == 0
+    return ok, f"res={res} 点击={len(rp.events)}（期望 no_entry / 0 次）"
+
+
+def scene_play_ad_no_ad(rp):
+    """⑩ 点了入口但既无广告层、业务页也没动 → 'no_ad'（fail fast, 不白等超时）。"""
+    sc = kit.open_screen(th=0.86, prefix="_adc_self")
+    res = kit.play_ad(sc, page="stage_btn", pos=(700, 1200), label="测试",
+                      timeout=20.0, appear=2.0)
+    ok = res == "no_ad" and len(rp.events) == 1
+    return ok, f"res={res} 点击={len(rp.events)}（期望 no_ad / 1 次入口点击）"
+
+
 if __name__ == "__main__":
     st.run_one("广告页兜底关闭 + 收尾自愈自检", [
         ("① 播完页 → 点「关闭」(今日皮肤)", [AD_DONE], scene_close_done),
@@ -135,4 +166,8 @@ if __name__ == "__main__":
         ("⑤ 纯广告页 → 点关闭, 不「停手」", [AD_DONE], scene_goto_home_not_stuck),
         ("⑥「恭喜获得」页 → 点「领取」", [AD_CLAIM], scene_claim_settle),
         ("⑦ goto_home 遇结算页 → 自愈回首页", [AD_CLAIM, HOME], scene_goto_home_claim),
+        ("⑧ play_ad 全链路 → 入口/关闭/领取/回业务页",
+         [AD_DONE, AD_CLAIM, HOME], scene_play_ad_ok),
+        ("⑨ 入口不存在 → no_entry 零点击", [HOME], scene_play_ad_no_entry),
+        ("⑩ 点了没广告 → no_ad fail fast", [HOME], scene_play_ad_no_ad),
     ])

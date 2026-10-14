@@ -37,8 +37,7 @@ from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 
 MAX_ROUNDS = 4            # 每日免费次数上限
-AD_TIMEOUT = 90.0         # 广告阶段总时长（广告 ≤35s + 点「关闭」+ 「恭喜获得」领取）
-JUMP_WAIT = 8.0           # 点免费后等跳过卡弹窗出现的秒数
+AD_TIMEOUT = 90.0         # 广告全链路超时（点「免费」→ 关闭 → 领取；广告 ≤35s）
 # 弹窗在场判据阈值：真弹窗里 stamina_close=0.998（实测 2026-10-09），
 # 但首页右侧轮播区偶尔能让它配到 0.904（≥默认 0.86）→ 会用默认阈值会误判
 # 「弹窗已开」而跳过点入口、并在收尾时盲点首页。两边分得开，取 0.95。
@@ -52,10 +51,10 @@ POPUP_AUX_TH = 0.90
 PLAN = """[dry] 计划:
   首页 --(stamina_entry 体力入口)--> 体力购买弹窗(stamina_close)
   --> 点「免费」(stamina_free) --> [偶现跳卡弹窗 → 不使用(jump_no)]
-  --> 等「免费」消失(点击被接受) --> 广告 → 等 ad_rewarded(45s) → **轮询「关闭」**
+  --> [kit.play_ad: 广告 → 点「关闭」→ 「恭喜获得」领取]
   --> 等「免费」重现 = 本轮完成；最多 4 轮
-  ⚠ 点击生效的判据是「免费」按钮消失，不是页面变化
-  ⚠ **「关闭」是主判据**（播放中就在、跨皮肤可用）；ad_rewarded 只用来提前知道播完
+  ⚠ 「关闭」播放中就已经在（文字层 0.86~0.98）；「已获得奖励」部分皮肤不显示
+     → 不能当唯一出口；关掉广告页后还有「恭喜获得」要**点领取**（2026-10-14 病根）
   ⚠ 次数用尽特征: 弹窗开着但没有「免费」按钮 → 关弹窗收尾
   ⚠ 弹窗已在场则不重复点入口(否则会把弹窗点掉)"""
 
@@ -133,39 +132,25 @@ def one_round(sc: kit.Screen, idx: int) -> str:
         close_popup(sc)
         return "exhausted"
 
-    sc.click(free, "免费")
     if sc.dry:
+        log(f"[dry] 轮{idx}: 会点「免费」→ 广告 → 关闭/领取 → 等「免费」重现")
         return "ok"
 
-    jno = sc.wait("jump_no", JUMP_WAIT)          # 跳过卡弹窗偶现
-    if jno is not None:
-        log("跳过卡弹窗出现 → 点「不使用」")
-        sc.click(jno, "不使用(跳过卡)")
-    else:
-        log("无跳过卡弹窗，直接等广告结束")
-
-    if not sc.wait_gone("stamina_free", 12):     # 按钮消失 = 点击被游戏接受
-        log("点击后「免费」未消失 → 点击未生效")
-        sc.shot(f"fs_stuck{idx}")
-        return "fail"
-
-    # 广告阶段交给公共状态机（跳卡弹窗 → 关广告页 → 「恭喜获得」点领取）
-    #   ⭐ 2026-10-14 实测病根: 旧实现只等 ad_rewarded(55s) —— 有的广告皮肤压根
-    #      不显示「已获得奖励」→ 从不点「关闭」→ 卡在广告页；就算关掉了，后面还有
-    #      一张「恭喜获得(扫荡卡×3)」结算页要**点领取**（_claimprobe_t0→t1 真帧验证:
-    #      点领取 → stamina_entry 0.973 回首页）—— 旧代码两步都没有 → 收尾时既不是
-    #      首页也没返回键 → goto_home「停手」→ 后面 2~5 号用例连坐。
-    res = kit.ad_flow(sc, page="stamina_free", timeout=AD_TIMEOUT)
-    log(f"广告流程结束: {res}")
-
-    if sc.wait("stamina_free", 12) is not None:
+    # 广告全链路（点「免费」→ 跳卡弹窗 → 关广告页 → 「恭喜获得」领取 → 回体力弹窗）
+    #   2026-10-14 抽成公共封装 kit.play_ad：free_stamina / free_sweep 原先各写一套，
+    #   都漏了「关闭」和「领取」两步（病根: 只等 ad_rewarded，部分广告皮肤压根不显示它）。
+    res = kit.play_ad(sc, entry="stamina_free", page="stamina_free",
+                      label="免费体力", timeout=AD_TIMEOUT)
+    log(f"广告流程: {res}")
+    if res == "ok":
         log("「免费」按钮重现，本轮完成 ✓")
         return "ok"
-    # 广告结束后游戏自己把弹窗收了（免费额 0）→ 已回首页，立刻收尾
-    if not popup_open(sc) and kit.is_home(sc):
-        log("弹窗已不在且已回首页（次数耗尽，游戏自动收弹窗）→ 收尾")
+    # 次数用尽: 入口已不存在 或 弹窗被游戏自己收掉
+    if res == "no_entry" or (not popup_open(sc) and kit.is_home(sc)):
+        log("没有「免费」入口 / 弹窗已被游戏收掉（次数用尽）→ 收尾")
+        close_popup(sc)
         return "exhausted"
-    log(f"广告流程后未见「免费」({res}) → 收尾")
+    log(f"广告流程异常({res}) → 收尾")
     kit.close_ad_page(sc)                    # 兜底: 广告页/结算页先清掉, 否则 goto_home 会停手
     close_popup(sc)
     sc.shot(f"fs_timeout{idx}")

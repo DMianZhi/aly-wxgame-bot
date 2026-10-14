@@ -4,9 +4,13 @@
     ⚠ 免费按钮没有模板: 位置由卡 4 图标中心下移 FREE_BTN_DY 推导
       (图标中心 y≈1092 → 按钮中心 y≈1220)，所以是算坐标点，不是模板匹配。
     ⚠ 商城四个免费位只裁了第 4 个(mall_card4)，本用例只吃这一个位。
-    链路: 首页 → 商城 → 卡4 → 点免费 → 广告(ad_close) → 等 ad_rewarded →
-          关广告 → 「恭喜获得」领取(claim_btn) → 回商城(card4 重现) = 成功
+    链路: 首页 → 商城 → 卡4 → 点免费 → [kit.play_ad: 广告 → 点「关闭」→ 「恭喜获得」领取] →
+          回商城(card4 重现) = 成功
     次数耗尽时 card4 不再出现 → 自动停（不误点别的卡）。
+
+    2026-10-14: 广告段原来自写一套（等 ad_close → 等 ad_rewarded → 关 → 领），
+      与 free_stamina 同一个病根 —— 只等 ad_rewarded（部分广告皮肤压根不出现）
+      → 漏掉「关闭」和「领取」两条死路。现统一走 kit.play_ad（见 wb/kit.py）。
 
 用法:
     uv run python tools/cases/free_sweep.py [--max=5] [--dry]
@@ -22,15 +26,15 @@ from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 
 FREE_BTN_DY = 128          # 免费按钮相对卡图标中心的纵向偏移
-ROUND_TIMEOUT = 150        # 单轮总超时(广告最长 30s + 缓冲)
-REWARDED_TIMEOUT = 45      # 等『已获得奖励』出现的上限
+FLOW_TIMEOUT = 90          # 广告全链路超时（广告 ≤35s + 点「关闭」+ 「恭喜获得」领取）
 
 PLAN = """[dry] 计划:
   首页 --(shop 商城)--> 商城页 --(mall_card4 第4个免费位)--> 点免费按钮(卡4中心下移128px)
-  --> 广告页(ad_close) --> 等 ad_rewarded(已获得奖励) --> 点关闭 --> 「恭喜获得」→ 领取
+  --> 广告 → 点「关闭」→ 「恭喜获得」→ 领取   (kit.play_ad 统一处理)
   --> 校验: mall_card4 重现(回商城页) = 本轮成功；最多 5 轮
-  ⚠ 免费按钮是「卡4中心 + 128px」算出来的，没有独立模板
-  ⚠ 广告播放中 ad_rewarded 可能是假命中，等它真出现(>=0.93)再关"""
+  ⚠ 免费按钮是「卡4中心 + 128px」算出来的，没有独立模板（play_ad 支持 pos= 入口）
+  ⚠ 「关闭」播放中就已经在(文字层 0.86~0.98)；「已获得奖励」部分皮肤**不显示**
+     → 不能当唯一出口（2026-10-14 实测病根）"""
 
 
 def goto_mall(sc: kit.Screen) -> bool:
@@ -63,46 +67,12 @@ def one_round(sc: kit.Screen, idx: int) -> bool:
         log(f"[dry] 轮{idx}: 计划点免费按钮 ({fx},{fy}) → 广告 → 关闭 → 领取 → 校验 card4 重现")
         return True
 
-    sc.click_at(fx, fy, "免费按钮(卡4下方)")
-
-    ad = sc.wait("ad_close", 30)
-    if ad is None:                      # 偶发跳过卡弹窗 → 点「不使用」再等
-        jno = sc.wait("jump_no", 10)
-        if jno is not None:
-            sc.click(jno, "不使用(跳过卡)")
-            ad = sc.wait("ad_close", 30)
-    if ad is None:
-        log("广告未出现，放弃本轮")
-        sc.shot(f"sweep_fail_ad{idx}")
-        return False
-    log("广告播放中")
-
-    rewarded = sc.wait("ad_rewarded", REWARDED_TIMEOUT)
-    if rewarded is not None:
-        log("奖励已到账(ad_rewarded)")
-
-    ac = sc.wait("ad_close", 10)
-    if ac is None and rewarded is None:
-        log("未见『已获得奖励』且无关闭钮 → 超时")
-        sc.shot(f"sweep_fail_reward{idx}")
-        return False
-    if ac is not None:
-        sc.click(ac, "广告关闭")
-    if not sc.wait_gone("ad_close", 15):
-        log("广告关闭失败")
-        sc.shot(f"sweep_fail_close{idx}")
-        return False
-
-    claim = sc.wait("claim_btn", 20)
-    if claim is None:
-        log("未见领取按钮")
-        sc.shot(f"sweep_fail_claim{idx}")
-        return False
-    sc.click(claim, "领取(恭喜获得)")
-
-    if sc.wait("mall_card4", 20) is None:
-        log("未回到商城页")
-        sc.shot(f"sweep_fail_back{idx}")
+    # 广告全链路（点坐标入口 → 跳卡/广告 → 关广告页 → 「恭喜获得」领取 → 回商城）
+    res = kit.play_ad(sc, page="mall_card4", pos=(fx, fy), label="免费",
+                      timeout=FLOW_TIMEOUT)
+    if res != "ok":
+        log(f"本轮未完成({res})")
+        sc.shot(f"sweep_fail_{res}{idx}")
         return False
     log("回商城页，本轮完成 ✓")
     return True

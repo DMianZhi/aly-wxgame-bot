@@ -635,6 +635,64 @@ def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM
     return "timeout"
 
 
+def play_ad(sc: Screen, *, page: str, entry: str | None = None,
+            pos: tuple[int, int] | None = None, label: str = "广告",
+            timeout: float = 90.0, appear: float = 15.0, ready: float = 15.0,
+            claim: str = CLAIM) -> str:
+    """「免费 X（看广告）」的**公共全链路**：点入口 → 跳卡/广告 → 关广告页 → 领奖 → 回业务页。
+
+    ⭐ 2026-10-14 抽通用（用户口径: 进入广告到关闭的逻辑应该都一样）:
+      free_stamina / free_sweep 原先各写一套（都漏了「关闭」/「领取」，见各用例注释），
+      free_gift / free_star / free_turn 只用 ad_flow、入口点击各写各的 —— 统一到这里。
+
+    入口二选一:
+      * entry=模板名（如 "stamina_free" / "gift_free"）
+      * pos=(x, y) 算坐标入口（free_sweep 的免费按钮没有模板，是卡心下移算出来的）
+    返回:
+      'ok'       业务页已重现（成功）
+      'no_entry' 没找到入口（可能次数已耗尽 / 不在业务页）
+      'no_ad'    点了入口但既没出现广告层、业务页也没动静（点击没生效）
+      'timeout'  广告流程超时且业务页没回来
+    """
+    if pos is not None:
+        if sc.dry:
+            log(f"[dry] 会点 {label}入口坐标 {pos} → 广告 → 关广告/领取 → 等回到 {page}")
+            return "ok"
+        sc.click_at(pos[0], pos[1], f"{label}入口(坐标)")
+    else:
+        if entry is None:
+            raise TypeError("play_ad 需要 entry=模板名 或 pos=(x,y)")
+        hit = sc.find(entry)
+        if hit is None:
+            return "no_entry"
+        sc.click(hit, f"{label}入口({entry})")
+        if sc.dry:
+            return "ok"
+
+    # 等「点击被接受」: 广告层出现(跳卡/关闭/奖励/领取) 或 业务页消失(正在跳转)
+    #   ⚠ 判据故意不用「入口按钮消失」: free_sweep 的入口是算坐标的、没有消失信号。
+    t0 = now()
+    taken = False
+    while now() - t0 < appear:
+        st = sc.look(AD_SKIP, claim, AD_REWARDED, AD_CLOSE, page)
+        if st[AD_SKIP] or st[claim] or st[AD_REWARDED] or st[AD_CLOSE]:
+            taken = True
+            break
+        if st[page] is None:
+            taken = True          # 业务页已让位 → 已在跳转
+            break
+        time.sleep(1.0)
+    if not taken:
+        log(f"{label}: 点击后 {appear:.0f}s 内既无广告层、业务页也没动 → 点击疑似未生效")
+        return "no_ad"
+
+    res = ad_flow(sc, page=page, timeout=timeout, claim=claim)
+    if sc.wait(page, ready) is not None:
+        return "ok"
+    log(f"{label}: 广告流程({res}) 后 {ready:.0f}s 内未见业务页({page})")
+    return "timeout" if res == "timeout" else res
+
+
 def claim_if_present(sc: Screen, *, th: float = TH_STRICT) -> bool:
     """「恭喜获得」→ 点领取。命中并点击返回 True。"""
     hit = sc.find(CLAIM, th=th)
