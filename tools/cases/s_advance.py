@@ -151,36 +151,45 @@ def white_cols(sc: kit.Screen, img) -> list[int]:
     return out
 
 
-def _dismiss_exp_over(sc: kit.Screen) -> None:
-    """点掉「经验过多」提示条(右侧绿色确认键, 与文字同层)。"""
-    if not EXP_OVER_TPL_OK:     # 模板未重裁前禁用: 否则会在二次确认弹窗上误点绿色「确认」
+def _dismiss_exp_over(sc: kit.Screen, hit=None) -> None:
+    """点掉「经验过多」提示条 —— 点**左侧蓝色「调整材料」**(=取消本次进阶)。
+
+    ⛔ 绝不能点右侧绿色「继续进阶」: 那等于确认消耗“溢出经验(不返还)”。
+       旧实现“扫绿色像素求均值”正好会把点击落在绿色「继续进阶」上 —— 危险, 已改。
+    模板 = 提示条第一行固定文案, 命中中心 + 固定偏移 = 蓝键中心(真帧实测)。
+    """
+    if not EXP_OVER_TPL_OK:
         return
-    img = sc.grab()
-    b, g, r = img[..., 0].astype(int), img[..., 1].astype(int), img[..., 2].astype(int)
-    green = (g > 140) & (g - r > 50) & (g - b > 50)
-    ys, xs = np.where(green)
-    if len(ys) > 500:
-        sc.click_base(int(xs.mean()), int(ys.mean()), "确定(经验过多提示)")
-        kit.nap(1.5)
-    else:
-        log("[warn] 没找到提示条上的确认键(可能已自动消失)")
+    if hit is None:
+        hit = qa._find(sc, "exp_over_text", TH_EXPOVER)
+    if hit is None:
+        log("[warn] 没找到「经验过多」提示条(可能已自动消失)")
+        return
+    dx, dy = EXP_OVER_ADJ_DXY
+    sc.click_base(int(hit[0] + dx), int(hit[1] + dy), "调整材料(取消经验过多提示)")
+    kit.nap(1.5)
 
 
 STOP_ALL = -3   # refine_row_s → run_tab/run: 「经验过多」→ 停止整个用例(用户口径)
 
-# ⛔ 2026-10-14 判据**停用**(用户反馈: 提示不是经验过多却被错判, 用例提前结束)。真因:
-#   templates/exp_over_text.png **内容裁错了** —— 它其实是一个蓝色「调整材料」按钮
-#   (386x62), 根本不是「经验过多」提示条。真帧实测(shots/_diag_now.png, 停在
-#   「确认快速进阶所选装备到极限?」二次确认弹窗): 该模板以 **0.9304 ≥ 0.90 命中弹窗
-#   左侧的蓝色「取消」按钮** → _exp_over() 误判「经验过多」→ STOP_ALL → **用例在第一个
-#   二次确认框就提前结束**。在拿到**真实提示条截图重裁模板**之前一律不判(恒 False)。
-EXP_OVER_TPL_OK = False     # 重裁好正确模板后改回 True
+# ⚠ 2026-10-14 修好(用户提供真帧 shots/_sadv_exp_over_bar.png)。曾经踩的坑:
+#   旧 templates/exp_over_text.png **裁错了** —— 它其实是提示条上的蓝色「调整材料」按钮
+#   (386x62), 而那颗键与「确认快速进阶所选装备到极限?」确认框里的蓝色「取消」长得几乎
+#   一样 → 在确认框上以 0.9304 ≥ 0.90 命中 → 误判「经验过多」→ 用例在**第一个确认框就
+#   提前结束**(用户反馈的真因)。
+#   现改裁**提示条第一行固定文案**「本次进阶经验已超过进阶所需的经验，」(不含第二行会变
+#   的“溢出N”数字); 真帧正验 1.0, 两个确认框帧反验均 None → 不互命。
+EXP_OVER_TPL_OK = True      # False = 不判不点(模板坏时降级用)
+TH_EXPOVER = 0.92           # 正帧 1.0 / 反帧 None → 取 0.92 留余量
+# 提示条上「调整材料」(蓝) 相对**文字行中心**的偏移(基准系, 实测帧 835x1509)
+EXP_OVER_ADJ_DXY = (-141, 189)
 
 
 def _exp_over(sc: kit.Screen, img=None) -> bool:
     """「经验过多」提示条在场？(用户实测: 升蓝时经验够会弹, 此时继续=浪费)
 
-    ⚠ 2026-10-14: 模板裁错(实为「调整材料」按钮) → 见 EXP_OVER_TPL_OK 注释, 暂恒 False。
+    模板 = 提示条**第一行固定文案**; ⚠ 别再用旧版(裁成「调整材料」按钮), 详见
+    EXP_OVER_TPL_OK 注释。
     """
     if not EXP_OVER_TPL_OK:
         return False
@@ -188,8 +197,7 @@ def _exp_over(sc: kit.Screen, img=None) -> bool:
     tpl = cv2.imread(str(_TPL_PATH))
     if tpl is None:
         return False
-    r = _bot.match_adaptive(frame, tpl, 0.90)
-    return r is not None
+    return _bot.match_adaptive(frame, tpl, TH_EXPOVER) is not None
 
 
 def refine_row_s(sc: kit.Screen) -> int:
@@ -249,7 +257,7 @@ def refine_row_s(sc: kit.Screen) -> int:
         # 二次确认弹窗(可能因「今日不再提示」被勾过而不出现) → 只点绿确认, 不碰勾选框
         for _ in range(6):
             # 「经验过多」提示条也会在这个时机弹(变体路径) → 点掉并停整个用例
-            if EXP_OVER_TPL_OK and qa._find(sc, "exp_over_text", 0.90) is not None:
+            if EXP_OVER_TPL_OK and qa._find(sc, "exp_over_text", TH_EXPOVER) is not None:
                 log("⚠ 弹出「经验过多」提示 → 经验已够, 升蓝到此为止(停止整个用例)")
                 _dismiss_exp_over(sc)
                 return STOP_ALL
