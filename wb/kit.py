@@ -519,6 +519,12 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
         if dismiss_group_popup(sc):
             stuck = False
             continue
+        if close_ad_page(sc):      # 广告页(看完没关) → 点「关闭」；不处理就找不到返回键、直接停手
+            stuck = False
+            continue
+        if claim_if_present(sc):   # 「恭喜获得」结算页 → 点「领取」(不领也是死路: 没返回键)
+            stuck = False
+            continue
         if sc.dry:
             log(f"[dry] 会点 返回键({BACK_KEY}) 回首页")
             return True
@@ -548,6 +554,38 @@ AD_SKIP = "jump_no"          # 跳过卡弹窗 → 选「不使用」
 AD_REWARDED = "ad_rewarded"  # 奖励到账（≥0.93 才可点关闭）
 AD_CLOSE = "ad_close"
 CLAIM = "claim_btn"
+# 「已获得奖励」不出现时的兜底时刻：用户口径广告 ≤35s，超过它就说明这皮肤压根
+# 不显示该标记（只能靠「关闭」），再等下去只是白等。
+AD_FALLBACK_AT = 40.0
+
+
+def on_ad_page(sc: Screen) -> bool:
+    """当前是不是「广告页」（含播放中与看完待关闭）。
+
+    ⚠ 判据只能靠「关闭」。2026-10-14 实测（_run/_adstart_*.png）：广告**播放中
+      「关闭」就已经在了**（文字层 0.86~0.98），而「已获得奖励」**只有部分皮肤
+      会出现**（用户口径: 广告 ≤35s，每次广告换背景图 → 颜色模板跟着漂）。
+      所以**不能**拿 ad_rewarded 当唯一出口，否则广告永远关不掉。
+    """
+    st = sc.look(AD_CLOSE, AD_REWARDED)
+    return st[AD_CLOSE] is not None or st[AD_REWARDED] is not None
+
+
+def close_ad_page(sc: Screen, *, settle: float = 1.8) -> bool:
+    """广告页兜底关闭（点右上「关闭」），点过返回 True。
+
+    ⭐ 这是「**一个广告把后面所有用例连坐**」的出口（2026-10-14 实测）:
+      free_stamina 第 2 轮广告播完后停在广告页，用例只等 ad_rewarded、没点关闭
+      → 75s 超时收尾；而广告页**既不是首页、也没有游戏返回键** → goto_home
+      直接「找不到返回键，停手」→ 后面 2~5 号用例全报「找不到商城入口/不在首页」。
+    """
+    st = sc.look(AD_CLOSE, AD_REWARDED)
+    hit = st[AD_CLOSE] or st[AD_REWARDED]
+    if hit is None:
+        return False
+    sc.click(hit, "关闭广告页(兜底)")
+    time.sleep(settle)
+    return True
 
 
 def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM,
@@ -561,6 +599,11 @@ def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM
         已领取且回业务页            → 结束
     page: 业务页标志模板名（领取后回到它即算成功）。
     返回 'claimed' | 'page'（没领但已回业务页）| 'timeout'。
+
+    ⭐ 2026-10-14 补「仅凭关闭」兜底: 微信广告换个背景图就可能**压根不显示
+      「已获得奖励」**（用户口径: 广告 ≤35s 且「关闭」播放中就在）→ 旧逻辑把
+      ad_rewarded 当唯一出口 → 永不点关闭 → 卡广告页 → 收尾时连返回键都没有。
+      现在: 超过 AD_FALLBACK_AT 秒还没等到「已获得奖励」→ 只凭「关闭」关掉。
     """
     t0 = now()
     claimed = False
@@ -581,6 +624,10 @@ def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM
                 return "claimed"
         elif st[AD_REWARDED] is not None and st[AD_CLOSE] is not None:
             sc.click(st[AD_CLOSE], "广告关闭")
+            time.sleep(2.0)
+        elif st[AD_CLOSE] is not None and now() - t0 >= AD_FALLBACK_AT:
+            log(f"  「已获得奖励」始终未出现(皮肤差异) → 仅凭「关闭」关广告(t={now() - t0:.0f}s)")
+            sc.click(st[AD_CLOSE], "广告关闭(兜底)")
             time.sleep(2.0)
         elif claimed and st[AD_CLOSE] is None:
             return "page"
