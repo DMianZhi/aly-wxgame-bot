@@ -24,8 +24,11 @@
     ⑧ play_ad 全链路（通用入口） → 点入口 → 广告 → 点关闭 → 领取 → 回业务页
     ⑨ 入口不存在     → 'no_entry' 且零点击（次数用尽时不乱点）
     ⑩ 点了入口没广告 → 'no_ad' fail fast（不白等到超时）
+    ⑪ 广告未满点关闭 → 「暂未获得奖励」确认框 → 点「放弃」退出（不再死点关闭键）
 
 夹具（真帧；缺了 → SKIP）:
+    _diag_explore_stuck.png    2026-10-15 真帧：广告页 + 「暂未获得奖励/是否继续观看视频」
+                               确认框（free_explore 卡死现场）
     _fs_fs_timeout2.png        2026-10-14 真跑留证（广告播完待关闭, 833x1515）
     _run/_adstart_10.png       2026-10-11 实跑广告播放中帧（818x1507）
     _run/_ad_state.png         2026-10-11 实跑广告播完帧（另一皮肤）
@@ -50,6 +53,7 @@ AD_PLAY = "_run/_adstart_10.png"       # 广告播放中（当日皮肤）
 AD_DONE2 = "_run/_ad_state.png"        # 广告播完（旧皮肤）
 HOME = "_csstest_pill_ok_home.png"     # 首页（非广告）
 AD_CLAIM = "_adclaim_get.png"          # 「恭喜获得」结算页（广告页关掉之后的下一层）
+AD_GIVEUP_F = "_diag_explore_stuck.png"  # 广告页 + 「暂未获得奖励」确认框（2026-10-15 真帧）
 FLOAT_Y = 260                          # 顶部广告浮层下界（真实浮层在基准 y≈100~170）
 
 
@@ -156,6 +160,20 @@ def scene_play_ad_no_ad(rp):
     return ok, f"res={res} 点击={len(rp.events)}（期望 no_ad / 1 次入口点击）"
 
 
+def scene_giveup_dialog(rp):
+    """⑪ 广告未满就点关闭 → 「暂未获得奖励」确认框 → 必须点「放弃」退出。
+
+    ⭐ 2026-10-15 现场: goto_home 在广告页上连点右上「关闭」13 次全无效
+      （确认框盖着）→ 卡死 83.8s。修复后应只点一下左格「放弃」。
+    """
+    sc = kit.open_screen(th=0.86, prefix="_adc_self")
+    done = kit.close_ad_page(sc)
+    clicks = list(rp.real_clicks)
+    near = [(x, y) for x, y in clicks if abs(x - 299) <= 15 and abs(y - 871) <= 15]
+    return (done is True) and len(clicks) == 1 and len(near) == 1, \
+        f"close_ad_page={done}（期望 True）点击={clicks}（期望仅「放弃」@≈(299,871)）"
+
+
 if __name__ == "__main__":
     st.run_one("广告页兜底关闭 + 收尾自愈自检", [
         ("① 播完页 → 点「关闭」(今日皮肤)", [AD_DONE], scene_close_done),
@@ -170,4 +188,5 @@ if __name__ == "__main__":
          [AD_DONE, AD_CLAIM, HOME], scene_play_ad_ok),
         ("⑨ 入口不存在 → no_entry 零点击", [HOME], scene_play_ad_no_entry),
         ("⑩ 点了没广告 → no_ad fail fast", [HOME], scene_play_ad_no_ad),
+        ("⑪ 确认框 → 点「放弃」退出(不再死点关闭键)", [AD_GIVEUP_F], scene_giveup_dialog),
     ])

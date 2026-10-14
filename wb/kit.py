@@ -559,6 +559,10 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
 AD_SKIP = "jump_no"          # 跳过卡弹窗 → 选「不使用」
 AD_REWARDED = "ad_rewarded"  # 奖励到账（≥0.93 才可点关闭）
 AD_CLOSE = "ad_close"
+# 「暂未获得奖励 / 是否继续观看视频」确认框的「放弃」键（2026-10-15）
+#   广告没满就点了「关闭」→ 微信弹这个**模态框**盖住广告页；不点它、只反复点右上「关闭」
+#   实测 13 次全无效、卡死 83.8s（星际探索 free_explore 现场）。「继续」= 接着看视频，不点。
+AD_GIVEUP = "ad_giveup"
 CLAIM = "claim_btn"
 # 「已获得奖励」不出现时的兜底时刻：用户口径广告 ≤35s，超过它就说明这皮肤压根
 # 不显示该标记（只能靠「关闭」），再等下去只是白等。
@@ -586,8 +590,14 @@ def close_ad_page(sc: Screen, *, settle: float = 1.8) -> bool:
       free_stamina 第 2 轮广告播完后停在广告页，用例只等 ad_rewarded、没点关闭
       → 75s 超时收尾；而广告页**既不是首页、也没有游戏返回键** → goto_home
       直接「找不到返回键，停手」→ 后面 2~5 号用例全报「找不到商城入口/不在首页」。
+    ⭐ 2026-10-15: 先查「暂未获得奖励」确认框 —— 广告没满就点关闭会弹它盖住广告页，
+      此时再点右上「关闭」永远无效（实测 goto_home 连点 13 次、卡死 83.8s）→ 必须点「放弃」。
     """
-    st = sc.look(AD_CLOSE, AD_REWARDED)
+    st = sc.look(AD_GIVEUP, AD_CLOSE, AD_REWARDED)
+    if st[AD_GIVEUP] is not None:
+        sc.click(st[AD_GIVEUP], "放弃(未获得奖励确认)")
+        time.sleep(settle)
+        return True
     hit = st[AD_CLOSE] or st[AD_REWARDED]
     if hit is None:
         return False
@@ -601,6 +611,7 @@ def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM
     """广告/免广告两种形态的通用状态机（8 个用例共用）。
 
     点完「免费/看广告」后调用。循环处理：
+        give up(暂未获得奖励确认框)   → 点「放弃」退出（模态框，优先；不处理会卡死）
         jump_no(跳过卡弹窗)        → 点「不使用」，保住道具
         ad_rewarded + ad_close     → 点关闭（ad_rewarded ≥0.93 才认，防广告还在播就点）
         claim_btn(「恭喜获得」)     → 点领取
@@ -624,17 +635,23 @@ def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM
     seen_ad = False
     last_ad = t0          # ⚠ 初始化为当前时刻: 否则"刚进来还没广告"会被算成已消失
     while now() - t0 < timeout:
-        st = sc.look(AD_SKIP, claim, AD_REWARDED, AD_CLOSE, page)
+        st = sc.look(AD_GIVEUP, AD_SKIP, claim, AD_REWARDED, AD_CLOSE, page)
         log(f"t={now() - t0:5.1f} jump_no={st[AD_SKIP] is not None} "
             f"claim={st[claim] is not None} ad_reward={st[AD_REWARDED] is not None} "
-            f"ad_close={st[AD_CLOSE] is not None} {page}={st[page] is not None}")
+            f"ad_close={st[AD_CLOSE] is not None} giveup={st[AD_GIVEUP] is not None} "
+            f"{page}={st[page] is not None}")
         ad_visible = any(st[k] is not None
-                         for k in (AD_SKIP, claim, AD_REWARDED, AD_CLOSE))
+                         for k in (AD_SKIP, claim, AD_REWARDED, AD_CLOSE, AD_GIVEUP))
         if ad_visible:
             seen_ad = True
             last_ad = now()
 
-        if st[AD_SKIP] is not None:
+        if st[AD_GIVEUP] is not None:
+            # 模态确认框优先（它盖住一切）：广告没满就点过关闭才会出现 → 点「放弃」退出。
+            #   ⭐ 2026-10-15: 不处理它 → 弹窗盖住广告页、之后所有点击全落空（卡死现场）
+            sc.click(st[AD_GIVEUP], "放弃(未获得奖励确认)")
+            time.sleep(1.5)
+        elif st[AD_SKIP] is not None:
             sc.click(st[AD_SKIP], "不使用(跳过卡)")
         elif st[claim] is not None:
             sc.click(st[claim], "领取")
