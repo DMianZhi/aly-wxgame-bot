@@ -80,6 +80,47 @@ def _px(xy: tuple[int, int], w: int, h: int, bw: int, bh: int) -> tuple[int, int
     return round(xy[0] * w / bw), round(xy[1] * h / bh)
 
 
+# ---- 小程序布局自适应（单屏 / 左右分屏）------------------------------
+# ⚠ 2026-10-14 用户说明：小程序**有时左右分屏、有时单屏**。内容画布位置会变：
+#     · 单屏  ：窗口 ≈731 宽，内容铺满窗口              → 基准坐标直接用（偏移 0）
+#     · 分屏  ：窗口 ≈1455 宽，内容只占窗口的**某一半**  → 整体平移 ±728
+#   旧常量把两种布局混在一起（入口按左半标、底部按钮按右半标）→ 换模式就失效。
+#   这里改成**运行时探测 + 统一平移**，并打日志便于事后核对真实模式。
+RD_TW, RD_TH = 365, 96              # 「雷霆兑换码」入口模板尺寸（templates/rd_home_entry.png）
+RD_ENTRY_CXY = (262, 700)           # 该模板在**单屏**下的命中中心（基准）
+_OFF: tuple[int, int] = (0, 0)      # 内容画布相对基准的平移量（setup_layout 里定）
+
+
+def _t(xy: tuple[int, int]) -> tuple[int, int]:
+    """内容画布基准坐标 → 当前实测坐标（加上布局平移）。"""
+    return xy[0] + _OFF[0], xy[1] + _OFF[1]
+
+
+def detect_pane(sc) -> tuple[int, int]:
+    """探测内容画布平移量 (dx, dy)：优先用入口模板定位，否则按窗口宽推断。
+
+    入口模板只在**小程序首页**存在；不在首页时退回宽度推断，并把依据写进日志。
+    """
+    hit = sc.find("rd_home_entry", 0.80)
+    if hit is not None:
+        cx, cy = hit[0] + RD_TW // 2, hit[1] + RD_TH // 2
+        dx, dy = cx - RD_ENTRY_CXY[0], cy - RD_ENTRY_CXY[1]
+        log(f"[layout] 窗口 {sc.w}x{sc.h} 入口模板命中中心({cx},{cy}) → 偏移({dx},{dy})")
+        return dx, dy
+    if sc.w <= 1000:
+        log(f"[layout] 窗口 {sc.w}x{sc.h} 单屏 → 偏移(0,0)")
+        return 0, 0
+    log(f"[layout] ⚠ 窗口 {sc.w}x{sc.h} 分屏且模板未命中(可能不在首页) → 按右半推断({TOOL_PANE},0)")
+    return TOOL_PANE, 0
+
+
+def setup_layout(sc) -> tuple[int, int]:
+    """进入小程序后调一次：定下 _OFF，后续工具侧坐标全部走 _t()。"""
+    global _OFF
+    _OFF = detect_pane(sc)
+    return _OFF
+
+
 def tool_screen(dry: bool = False, wait: float = 20.0):
     """找小程序窗口；等它**稳定在就绪尺寸**（加载期会从窄变宽：728 → 1455）。
 
@@ -175,9 +216,9 @@ def batch_copy(sc, wait: float = 8.0) -> list[str]:
         pyperclip.copy(SENTINEL)                        # 清场：屏蔽旧内容干扰
     except Exception:
         pass
-    sc.click_at(*_px(XY_BATCH_COPY, sc.w, sc.h, TOOL_W, TOOL_H), "批量复制")
+    sc.click_at(*_t(XY_BATCH_COPY), "批量复制")
     nap(1.5)
-    sc.click_at(*_px(XY_COPY_SELECTED, sc.w, sc.h, TOOL_W, TOOL_H), "复制所选内容(今日失效)")
+    sc.click_at(*_t(XY_COPY_SELECTED), "复制所选内容(今日失效)")
     end = time.time() + wait
     while time.time() < end:
         nap(0.5)
@@ -186,7 +227,7 @@ def batch_copy(sc, wait: float = 8.0) -> list[str]:
             codes = parse_codes(now)
             if codes:
                 log(f"剪贴板拿到 {len(codes)} 个今日失效码: {', '.join(codes)}")
-                sc.click_at(*_px(XY_BATCH_CLOSE, sc.w, sc.h, TOOL_W, TOOL_H), "关闭批量复制弹窗")
+                sc.click_at(*_t(XY_BATCH_CLOSE), "关闭批量复制弹窗")
                 nap(0.8)
                 return codes
     log("✗ 剪贴板未拿到兑换码（批量复制失败/今日无失效码）")
@@ -204,7 +245,7 @@ def ensure_code_page(sc) -> bool:
         log("小程序已在兑换码页")
         return True
     for attempt in range(3):
-        sc.click_at(*_px(XY_HOME_CODE_ENTRY, sc.w, sc.h, TOOL_W, TOOL_H),
+        sc.click_at(*_t(XY_HOME_CODE_ENTRY),
                     "雷霆兑换码" + ("" if attempt == 0 else f"·重试{attempt + 1}"))
         for _ in range(12):                  # 最多等 ~24s（冷启动后小程序还在渲染）
             nap(2.0)
@@ -327,6 +368,7 @@ def run(sc, args) -> bool:                              # noqa: C901
                 return True
             log("✗ 找不到工具箱小程序窗口（Yang昜工具箱）→ 请确认微信已登录")
             return False
+        setup_layout(tsc)          # ⭐ 探测单屏/分屏，定下内容画布平移
         if not ensure_code_page(tsc):
             log("✗ 未能进入小程序兑换码页（看不到「今晚失效」标签）")
             return False
