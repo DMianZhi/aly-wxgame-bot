@@ -25,11 +25,18 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
+from pathlib import Path
 
-from wb import bot, kit
-from wb.cfg import SHOTS_DIR
-from wb.kit import log, nap
+# ⚠ 必须插在 import wb 之前: 批量跑器用「脚本路径」方式启动(python tools/cases/x.py)，
+#   此时 sys.path[0]=tools/cases → 不加这行会 ModuleNotFoundError: No module named 'wb'
+#   (2026-10-14 批量跑 [10/10] 实测炸在这里；用 -m 方式跑不会暴露)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from wb import bot, kit  # noqa: E402
+from wb.cfg import SHOTS_DIR  # noqa: E402
+from wb.kit import log, nap  # noqa: E402
 
 # ---- 实测基准尺寸 ------------------------------------------------
 GAME_W, GAME_H = 826, 1503          # 游戏客户区（实测）

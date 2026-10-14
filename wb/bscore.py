@@ -123,6 +123,15 @@ def _glyphs(band: np.ndarray, k: float) -> list[np.ndarray | None]:
         if len(ys) < max(20, int(30 * k * k)):      # 墨迹太少 = 发光残影/装饰条, 不是数字
             out.append(None)
             continue
+        gh = ys.max() - ys.min() + 1
+        gw = xs.max() - xs.min() + 1
+        # ⭐ 2026-10-14 实跑踩坑: 窗口缩到 831 高后数字带下缘的**进度条边框**上移进带，
+        #   被切成 (2,18) 的扁横条（分数仅 0.20）却仍占格位 → read_score 直接 return None，
+        #   日志就是「得分=读不出」。真数字高≈20px(band 35px 的 6 成)、宽≈pitch 的 7 成
+        #   → 又扁又矮的一律判空。
+        if gh < 0.45 * cell.shape[0] or gw < 0.5 * pitch:
+            out.append(None)
+            continue
         out.append(cell[ys.min():ys.max() + 1, xs.min():xs.max() + 1].copy())
     return out
 

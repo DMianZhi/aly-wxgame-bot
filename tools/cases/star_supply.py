@@ -155,7 +155,15 @@ def enter_stair(sc: kit.Screen) -> bool:
                 return False
             continue
         if st == UNKNOWN:
-            log("当前是认不出的页面 → 不瞎点，中止（请手动回首页后重跑）")
+            # ⭐ 2026-10-14: 不再一遇未知页就中止 —— 批量跑时上一个用例收尾不干净
+            #   (实测快速进阶-S装收尾后停在「仓库」页) 会让本用例连坐失败。
+            #   先借 goto_home 的自愈能力回首页，真的回不去才停手。
+            log("认不出的页面 → 先尝试回首页（不再直接中止）")
+            sc.shot("unknown_try_home")
+            if kit.goto_home(sc):
+                log("已回首页 → 继续")
+                continue
+            log("回首页失败 → 不瞎点，中止（请手动回首页后重跑）")
             sc.shot("fail_unknown_page")
             return False
         if st == STAGE:

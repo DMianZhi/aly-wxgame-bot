@@ -57,7 +57,11 @@ NAP_UI = 0.7             # 普通界面反应(用户明确要求加快 → 每�
 NAP_FAST = 0.08          # ± 连点间隔
 NAP_OPEN = 1.2           # 点开详情页/关页
 REFINE_SKIP = -2         # refine_row: 成本闸门不过 → 跳过该行(不是错误)
-COST_IOU = 0.80           # 闸门门限。实测: 夹具金标准帧 1.000; 真机这版页面 0.857
+COST_IOU = 0.72           # 闸门门限。实测: 夹具金标准帧 1.000; 真机 845 宽 0.857
+#   ⚠ 2026-10-14 窗口缩到 831x1507 时掉到 0.7855 —— 游戏按分辨率**重绘**字（笔画粗细差 15%），
+#     与位置无关（扫过 ±26/±3 找最优位仍是 0.7855）→ 0.80 会误报「成本不是 5538」。
+#     真帧 5538 实测 0.7855 必须通过；而**只差一位**(5536)IoU 掉到 ~0.55 → 0.72 仍安全。
+#     （试过 bbox 归一化后再比：反而降到 0.72，因为金币图标被算进 bbox → 弃用）
 # (字模取自 814 宽旧帧, 缩放后仍有差异); 不符价的帧远低于此。且闸门已改告警不拦,
 # 门限只影响日志噪声, 不影响行为。
 COST_RECT = (379, 810, 116, 30)   # 详情页「消耗资源」金币数字(基准坐标)
@@ -822,13 +826,19 @@ def refine_row(sc: kit.Screen) -> int:
         if not _tap(sc, "qa_go", "快速进阶"):
             return -1
         # 二次确认弹窗(可能因「今日不再提示」被勾过而不出现) → 只点绿确认, 不碰勾选框
-        for _ in range(6):
-            if _find(sc, "qa_confirm") is not None:
-                sc.click(_find(sc, "qa_confirm"), "确认(二次弹窗)")
-                break
+        # ⭐ 2026-10-14 实跑踩坑: 只点**一次** sc.click 会**丢点击** —— 实测点完确认 6s 后
+        #   弹窗还在(_quickadv_fail_claim_1.png)，而后面的 _tap(claim_btn) 一直等不到
+        #   → 误判「进阶后没等到恭喜获得」。与 guild_donate 同款病(间隔太短的连点被游戏丢)。
+        #   修法: 点后**复核弹窗是否真关了**, 没关就再点(最多 4 次)。
+        for i in range(4):
+            e = _find(sc, "qa_confirm")
+            if e is None:
+                break                        # 弹窗已关 → 正常
+            sc.click(e, "确认(二次弹窗)" + ("" if i == 0 else f"·重试{i + 1}"))
+            kit.nap(1.0)                     # 等游戏响应(太快会丢点击)
             if _find(sc, "claim_btn", TH_CLAIM) is not None:
                 break
-            kit.nap(0.8)
+        # ⚠ 若 4 次后弹窗仍在 → 下面的 _tap(claim_btn) 会失败并留证(fail_claim)，不硬闯
         if not _tap(sc, "claim_btn", "领取(恭喜获得)", th=TH_CLAIM, tries=4):
             log("✗ 进阶后没等到「恭喜获得」弹层 → 留证")
             sc.shot(f"fail_claim_{rnd}")

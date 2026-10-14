@@ -146,6 +146,12 @@ def _run_batch(console: Console, entries, *, dry: bool) -> None:
             "interrupted": interrupted,
         })
         console.print(view.result_panel(res, rc=rc, stderr_tail=logs))
+        if results[-1]["code"] == 5:
+            # ⭐ 2026-10-14 急停(鼠标甩到屏幕角落): 鼠标停在角落期间**每次点击都立即抛**
+            #   → 后面每个用例都会在十几秒内连环崩（实测 活跃度/奖励领取/社区奖励 三连崩）。
+            #   直接中止队列，别再白跑（用户甩鼠标本来是「停止」意图）。
+            console.print("[bold red]⛔ 检测到急停（鼠标在屏幕角落）→ 中止队列剩余用例[/]")
+            break
         if interrupted:
             console.print("[yellow]（本次被手动中断）[/]")
             if not Confirm.ask("继续队列剩下的用例？", default=True, console=console):

@@ -28,6 +28,12 @@ import json
 import os
 import sys
 import time
+
+try:                                     # 急停异常: 鼠标甩到屏幕角落时 pyautogui 抛出
+    from pyautogui import FailSafeException
+except Exception:                        # 无 GUI 环境(离线自检/CI) 的占位，永不抛出
+    class FailSafeException(Exception):  # type: ignore[no-redef]
+        pass
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -853,6 +859,7 @@ def _run_locked(name: str, fn, args: Args, *, prefix: str, lock_ttl: float,
         return 2
 
     code = 0
+    aborted = False                          # 急停: 必须跳过收尾(收尾也要点击 → 会连环抛)
     with single_instance(name, lock_ttl, dry=args.dry) as got:
         if not got:
             if CURRENT is not None:
@@ -872,8 +879,19 @@ def _run_locked(name: str, fn, args: Args, *, prefix: str, lock_ttl: float,
                 CURRENT.error = "timeout"
             code = 4
         except KeyboardInterrupt:
-            log("被中断(急停: 鼠标甩左上角 / Ctrl+C) → 收尾")
-            code = 1
+            log("⛔ 被中断(急停: Ctrl+C) → 中止本次运行")
+            code = 5
+            aborted = True
+        except FailSafeException:
+            # ⭐ 2026-10-14 急停必须**独立识别**: 旧代码落到下面的 except Exception →
+            #   记成「未达成」；而鼠标停在角落期间**每次点击都立即抛** → 批量跑时
+            #   后面每个用例都在 ~12s 连环崩(实测 活跃度/奖励领取/社区奖励 三连崩)。
+            #   改用急停专用退出码 5（批量跑器据此中止后续），并跳过收尾。
+            log("⛔ 急停触发（鼠标甩到屏幕角落）→ 中止本次运行")
+            if CURRENT is not None:
+                CURRENT.error = "aborted(failsafe)"
+            code = 5
+            aborted = True
         except Exception as e:                    # 未预期异常：留证 + 仍走 finally 收尾
             import traceback
             log(f"[fail] 未预期异常 {type(e).__name__}: {e} → 留证并收尾")
@@ -883,7 +901,7 @@ def _run_locked(name: str, fn, args: Args, *, prefix: str, lock_ttl: float,
                 CURRENT.error = f"{type(e).__name__}: {e}"
             code = 1
         finally:
-            if not args.dry and not args.no_back:
+            if not aborted and not args.dry and not args.no_back:
                 try:
                     goto_home(sc)
                 except Exception as e:
