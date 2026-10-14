@@ -563,6 +563,8 @@ CLAIM = "claim_btn"
 # 「已获得奖励」不出现时的兜底时刻：用户口径广告 ≤35s，超过它就说明这皮肤压根
 # 不显示该标记（只能靠「关闭」），再等下去只是白等。
 AD_FALLBACK_AT = 40.0
+# 广告层消失后, 再等这么久都回不来业务页 → 提前收手(见 ad_flow docstring)
+GONE_GRACE = 8.0
 
 
 def on_ad_page(sc: Screen) -> bool:
@@ -595,7 +597,7 @@ def close_ad_page(sc: Screen, *, settle: float = 1.8) -> bool:
 
 
 def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM,
-            interval: float = 2.0) -> str:
+            interval: float = 2.0, gone_grace: float = GONE_GRACE) -> str:
     """广告/免广告两种形态的通用状态机（8 个用例共用）。
 
     点完「免费/看广告」后调用。循环处理：
@@ -604,20 +606,33 @@ def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM
         claim_btn(「恭喜获得」)     → 点领取
         已领取且回业务页            → 结束
     page: 业务页标志模板名（领取后回到它即算成功）。
-    返回 'claimed' | 'page'（没领但已回业务页）| 'timeout'。
+    返回 'claimed' | 'page'（没领但已回业务页）| 'gone'（广告层已消失、业务页也没回）| 'timeout'。
 
     ⭐ 2026-10-14 补「仅凭关闭」兜底: 微信广告换个背景图就可能**压根不显示
       「已获得奖励」**（用户口径: 广告 ≤35s 且「关闭」播放中就在）→ 旧逻辑把
       ad_rewarded 当唯一出口 → 永不点关闭 → 卡广告页 → 收尾时连返回键都没有。
       现在: 超过 AD_FALLBACK_AT 秒还没等到「已获得奖励」→ 只凭「关闭」关掉。
+    ⭐ 2026-10-14 补「广告层消失即早退」(用户反馈: 免费体力次数用尽后还在傻等):
+      次数用尽时「免费」变灰 → 业务页标志 stamina_free 匹配不到(0.73<0.86) →
+      旧逻辑永远等不到「回到业务页」, 一路空转到 timeout(实测白等 ~67s)。
+      现在: **曾出现过广告层**(4 个标志任一) 且随后连续 gone_grace 秒一个都不在 →
+      业务页在 = 'page'; 不在 = 'gone'(交给调用方判「次数用尽/被游戏收掉」)。
+      要求"曾出现过"是防误伤「广告播放中压根不显示关闭键」的皮肤。
     """
     t0 = now()
     claimed = False
+    seen_ad = False
+    last_ad = t0          # ⚠ 初始化为当前时刻: 否则"刚进来还没广告"会被算成已消失
     while now() - t0 < timeout:
         st = sc.look(AD_SKIP, claim, AD_REWARDED, AD_CLOSE, page)
         log(f"t={now() - t0:5.1f} jump_no={st[AD_SKIP] is not None} "
             f"claim={st[claim] is not None} ad_reward={st[AD_REWARDED] is not None} "
             f"ad_close={st[AD_CLOSE] is not None} {page}={st[page] is not None}")
+        ad_visible = any(st[k] is not None
+                         for k in (AD_SKIP, claim, AD_REWARDED, AD_CLOSE))
+        if ad_visible:
+            seen_ad = True
+            last_ad = now()
 
         if st[AD_SKIP] is not None:
             sc.click(st[AD_SKIP], "不使用(跳过卡)")
@@ -637,6 +652,14 @@ def ad_flow(sc: Screen, *, page: str, timeout: float = 120.0, claim: str = CLAIM
             time.sleep(2.0)
         elif claimed and st[AD_CLOSE] is None:
             return "page"
+
+        # 广告层消失后早退（见 docstring）
+        if seen_ad and not ad_visible and now() - last_ad >= gone_grace:
+            if st[page] is not None:
+                log(f"广告层已消失 {gone_grace:.0f}s、业务页({page})已在 → 结束")
+                return "page"
+            log(f"广告层已消失 {gone_grace:.0f}s 且业务页({page})未回 → 提前收手")
+            return "gone"
         time.sleep(interval)
     return "timeout"
 
@@ -656,7 +679,8 @@ def play_ad(sc: Screen, *, page: str, entry: str | None = None,
       * pos=(x, y) 算坐标入口（free_sweep 的免费按钮没有模板，是卡心下移算出来的）
     返回:
       'ok'       业务页已重现（成功）
-      'no_entry' 没找到入口（可能次数已耗尽 / 不在业务页）
+      'no_entry' 没找到入口（可能次数已耗尽 / 不在业务页）；
+                 ⚠ 也包含「广告层已消失但业务页没回来」(ad_flow 的 'gone'，2026-10-14)
       'no_ad'    点了入口但既没出现广告层、业务页也没动静（点击没生效）
       'timeout'  广告流程超时且业务页没回来
     """
@@ -695,6 +719,11 @@ def play_ad(sc: Screen, *, page: str, entry: str | None = None,
     res = ad_flow(sc, page=page, timeout=timeout, claim=claim)
     if sc.wait(page, ready) is not None:
         return "ok"
+    if res == "gone":
+        # 广告层已消失、业务页却没回 → 既不是正常超时、也不是点击没生效。
+        # 实测就是「次数用尽」(免费钮变灰 → page 模板失配) → 归到 no_entry, 让用例当正常收尾。
+        log(f"{label}: 广告层已消失且业务页({page})未回 → 疑似次数用尽/被游戏收掉")
+        return "no_entry"
     log(f"{label}: 广告流程({res}) 后 {ready:.0f}s 内未见业务页({page})")
     return "timeout" if res == "timeout" else res
 
