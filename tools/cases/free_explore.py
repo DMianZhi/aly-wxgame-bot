@@ -30,6 +30,8 @@ from wb.kit import log  # noqa: E402
 TH = 0.90               # 本用例整页阈值高于默认 0.86
 CLAIM_TH = 0.93         # exp_claim 需高阈值(与「免费领取」区分)
 REWARD_TIMEOUT = 120    # 点领取后等广告+恭喜的最长时间(广告约 40s)
+AD_FALLBACK_AT = 40     # 只看到「广告关闭」、没看到「已获得奖励」时的兜底时长(秒)
+CLOSE_RETRY_GAP = 6     # 点「广告关闭」的重试间隔(点击可能被游戏丢掉)
 
 PLAN = """[dry] 计划:
   首页 --(star_explore 星际探索)--> 面板(exp_close)
@@ -54,10 +56,11 @@ def claim_button(sc: kit.Screen):
 def handle_reward(sc: kit.Screen, idx: int) -> bool:
     """等广告/恭喜弹窗并完成领取。"""
     t0 = kit.time.time()
-    closed_ad = False
+    last_close = -999.0
     while kit.time.time() - t0 < REWARD_TIMEOUT:
+        el = kit.time.time() - t0
         jno, adr, adc, cbtn = sc.look("jump_no", "ad_rewarded", "ad_close", "claim_btn").values()
-        log(f"  第{idx}轮 t={kit.time.time() - t0:5.1f} 跳过卡={jno is not None} "
+        log(f"  第{idx}轮 t={el:5.1f} 跳过卡={jno is not None} "
             f"已获奖励={adr is not None} 广告关闭={adc is not None} 恭喜领取={cbtn is not None}")
 
         if cbtn is not None:
@@ -65,9 +68,14 @@ def handle_reward(sc: kit.Screen, idx: int) -> bool:
             return True
         if jno is not None:
             sc.click(jno, "不使用(跳过卡)")
-        elif adr is not None and adc is not None and not closed_ad:
-            sc.click(adc, "广告关闭")
-            closed_ad = True
+        elif adc is not None and (adr is not None or el >= AD_FALLBACK_AT):
+            # ⭐ 2026-10-15 实跑卡死(第2轮 等 120s 超时): 原条件要求「已获得奖励」也命中
+            #   才点关闭 → 换肤/分数偏低时 ad_rewarded 不命中(日志 已获奖励=False)，
+            #   一次都不点 → 空转到超时，且该轮失败后面全部跑不成。
+            #   改为: 只要看到「关闭」，或已等够兜底时长，就点；并允许重试(点击可能被丢)。
+            if el - last_close >= CLOSE_RETRY_GAP:
+                sc.click(adc, "广告关闭" + ("" if adr is not None else "(兜底)"))
+                last_close = el
         kit.nap(1.5)
 
     log(f"第{idx}轮 等待奖励超时")
