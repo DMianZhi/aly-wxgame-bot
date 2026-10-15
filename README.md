@@ -105,26 +105,27 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 27 | 社区奖励(游戏圈点赞/评论+桌面礼包) | `uv run python tools/cases/community_reward.py` | - | `--dry` | 首页「社区奖励」入口(cg_*) → 面板两行: 游戏圈内点赞(0/2)/评论(0/1), 各带「前往」→ 点前往拉起**独立窗口**「微信游戏」(与游戏同 PID, 2099x1312, 只复用 bot.find_game_window) → 游戏圈页签 → 点赞×2(点一个往下翻再点下一个) → 点评论图标开右侧抽屉 → 点输入框 type_text(111) → **打字后才出现的青色「评论」发送键** → 关抽屉 → 右栏「去领取」→ 礼包中心领取 → 回游戏 → 重开面板才会刷新出「领取」(点赞2/2、评论1/1 各一个) → 添加桌面页再领一个 → 回首页。⚠ 四个实测坑(均已固化成防线): ① **已赞图标会变红** → 灰空心 wx_like 匹配不到, 不能拿它当「feed 已加载」判据(备用 wx_comment; 并先滚回 feed 顶部)； ② 抽屉的 X 在 y≈175, 而**窗口自身的 X 在 y≈56** —— 发完评论后抽屉常自动收起, 此时 find 会以 0.915 命中最像的窗口关闭键, 一点就把整个微信窗口关掉(之后抓帧全黑) → 关闭类动作一律加 **y>100 位置守卫**； ③ 「领取」按钮**两页字形/尺寸不同**(游戏圈 144x66 / 添加桌面 238x81, 互匹配仅 0.68) → 两套模板均试(CLAIM_TPLS)； ④ 面板会停在上次的页签 → **无条件点一次「游戏圈」页签**, 否则任务被当成已完成静默跳过。 任务已完成的那一半自动跳过(不重复发公开评论); --skip-wx/--skip-claim/--likes=N 可分段验证 |
 | 28 | 兑换码(工具箱小程序批量复制 → 游戏内兑换) | `uv run python tools/cases/redeem_code.py` | - | `--dry --codes=A,B --all --max=N` | 工具箱小程序「Yang昜工具箱」可在兑换码页批量复制今日失效码 → 读剪贴板解析(哨兵法判成功, 同日重跑内容相同不再误判) → 回游戏 设置/兑换 逐码输入。⚠ 三大坑(2026-10-13 实测): ① **中文输入法会把码劫持成汉字**(输入框出现过 `8SJFTSTY篇N` → 报「无效兑换码」) → 输入前必须切英文(HKL 0x409)；IMM32 路线**无效**(游戏自绘输入框 ImmGetContext 返回 0), 改用 PostMessage(WM_INPUTLANGCHANGEREQUEST) 切语言 → wb/bot.py::ime_english； ② 「输入文字」弹窗**会保留上一轮文字** → 每轮先 clear_text 再输入; ③ 结果两种: 成功=全屏「恭喜获得」页(claim_btn 领取) / 失败=提示弹层(绿「确认」与「兑换」同槽位 424,895)。--codes 可直传码跳过小程序段；④ 失败文案**不止一种**(「无效兑换码」rd_invalid_tag / 「无法重复使用同一个兑换码」rd_repeat_tag) → **两个模板都要判**：漏判会**连锁失效**(弹层不被关掉 → 模态遮罩把后续每一轮的点击全吃掉，实测第 4~5 个码集体哑火)；redeem_one 开头先 close_popups 清残层(幂等)； ⑤ 收尾**必须先关兑换码弹窗(X 724,665)再关设置面板(X 750,347)** —— 弹窗是模态，反着点遮罩会吃掉面板 X 的点击；且**不能**用 stage_btn 判「已回首页」(弹层半透明遮罩下stage_btn 仍命中 0.971 vs 正常 0.996) → 改用弹层判据复查 |
 
-### 裁剪工具（`tools/crop/`，16 个）
+### 裁剪工具（`tools/crop/`，17 个）
 
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
 | 1 | 快速进阶页模板裁图 | `uv run python tools/crop/crop_quickadv.py` | - | `--dry` | 裁快速进阶列表/详情/数量面板/选料面板/弹窗/结果页模板；与现成 sweep_close/claim_btn 复用交叉核验 |
 | 2 | S装升蓝「经验过多」提示条裁剪 | `uv run python tools/crop/crop_sadv.py` | - | `-` | 只裁提示条**第一行固定文案**(避开会变的溢出数字)；**必跑反验证**——在「继续进阶」确认框上不得命中(旧模板裁成蓝「调整材料」按钮与确认框「取消」互命 0.9304, 曾致用例在第一个确认框就提前结束) |
 | 3 | 广告「暂未获得奖励」确认框「放弃」键裁剪 | `uv run python tools/crop/crop_adgiveup.py` | - | `-` | 广告未满就点「关闭」会弹模态确认框盖住广告页 → 再点「关闭」永远无效(free_explore 实测 goto_home 连点 13 次、卡死 83.8s) → 必须点左格「放弃」。**必跑反验证** + 命中须落在弹窗左格(右格「继续」= 接着看视频, 绝不点) |
-| 4 | 首页模板裁剪 | `uv run python tools/crop/crop_home.py` | - | `-` | 首页组 + 弹窗（如体力弹窗） |
-| 5 | 闯关/扫荡模板裁剪 | `uv run python tools/crop/crop_stage.py` | - | `-` | 扫荡面板、关卡页、材料图标 |
-| 6 | BOSS 列表页裁剪 | `uv run python tools/crop/crop_boss.py` | - | `-` | BOSS 入口/空间站名/仓库键 |
-| 7 | BOSS 闪击链路裁剪 | `uv run python tools/crop/crop_boss_flash.py` | - | `-` | 站内闪击→对话框→钻石确认→局内复活→结算页 |
-| 8 | 超限挑战链路裁剪 | `uv run python tools/crop/crop_hyper.py` | - | `-` | 超限页标题/四站铭牌 + 详情页普通/超限双按钮 + 右缘橙色切换箭头(6 boss 轮换) + 确认弹窗 |
-| 9 | 星际探索裁剪 | `uv run python tools/crop/crop_rift.py` | - | `-` | 探索页/领取/快速探索/关闭 |
-| 10 | 寻宝裁剪 | `uv run python tools/crop/crop_treasure.py` | - | `-` | 寻宝页页签 + 两张宝箱卡 |
-| 11 | 转盘裁剪 | `uv run python tools/crop/crop_turn.py` | - | `-` | ⭐ turn_daily(免费) 与 turn_paid(付费30💎) 必须留足区分度 |
-| 12 | 兑换星辉裁剪 | `uv run python tools/crop/crop_exchange.py` | - | `-` | 兑换页页签 + 红点四角金币 |
-| 13 | 战队捐献裁剪 | `uv run python tools/crop/crop_guild.py` | - | `-` | 含确认弹窗/勾选框/次数不足提示层 |
-| 14 | 战队 BOSS 征讨裁剪 | `uv run python tools/crop/crop_guildboss.py` | - | `-` | gb_entry(战队页卡标题，避开红点/状态字)+gb_max(前提判据)+gb_go(出击)+gb_done+gb_ok+gb_armed_title(每期「本期战术武装」推荐弹窗标题)；gb_ok 必须核验不在征讨页命中(躲 100% 进度条)；gb_done 太大不做区分度矩阵(zone<模板会 assert)；⭐ gb_armed_ok(「知道了」)**不裁**: 与 claim_btn(「领取」)同款、在 _claimprobe_t0 上 0.946 假命中 → 用例改用标题位置 + ARMED_OK_DY(730) 偏移点击 |
-| 15 | 十年集结裁剪 | `uv run python tools/crop/crop_rally.py` | - | `-` | 首页活动卡 + 集结页 + 弹幕面板 |
-| 16 | 逐星补给裁剪 | `uv run python tools/crop/crop_star.py` | - | `-` | 长阶页入口/×5 装置(**必须裁可领态**: 已领后装置整个消失) + 补给面板领5次键/X；两源图分两次 run_crop，另做跨页核验(4 模板在闯关页/首页须 ≤0.86) |
+| 4 | 小程序首页「雷霆兑换码」入口裁剪 | `uv run python tools/crop/crop_rdhome.py` | - | `-` | 单屏首页真帧裁 128x98 图标; 带反验证(不得与相邻「活动时间线」混淆) — 2026-10-15 小程序改版换位, 旧模板 + 硬编码 (365,700) 会点到活动时间线 |
+| 5 | 首页模板裁剪 | `uv run python tools/crop/crop_home.py` | - | `-` | 首页组 + 弹窗（如体力弹窗） |
+| 6 | 闯关/扫荡模板裁剪 | `uv run python tools/crop/crop_stage.py` | - | `-` | 扫荡面板、关卡页、材料图标 |
+| 7 | BOSS 列表页裁剪 | `uv run python tools/crop/crop_boss.py` | - | `-` | BOSS 入口/空间站名/仓库键 |
+| 8 | BOSS 闪击链路裁剪 | `uv run python tools/crop/crop_boss_flash.py` | - | `-` | 站内闪击→对话框→钻石确认→局内复活→结算页 |
+| 9 | 超限挑战链路裁剪 | `uv run python tools/crop/crop_hyper.py` | - | `-` | 超限页标题/四站铭牌 + 详情页普通/超限双按钮 + 右缘橙色切换箭头(6 boss 轮换) + 确认弹窗 |
+| 10 | 星际探索裁剪 | `uv run python tools/crop/crop_rift.py` | - | `-` | 探索页/领取/快速探索/关闭 |
+| 11 | 寻宝裁剪 | `uv run python tools/crop/crop_treasure.py` | - | `-` | 寻宝页页签 + 两张宝箱卡 |
+| 12 | 转盘裁剪 | `uv run python tools/crop/crop_turn.py` | - | `-` | ⭐ turn_daily(免费) 与 turn_paid(付费30💎) 必须留足区分度 |
+| 13 | 兑换星辉裁剪 | `uv run python tools/crop/crop_exchange.py` | - | `-` | 兑换页页签 + 红点四角金币 |
+| 14 | 战队捐献裁剪 | `uv run python tools/crop/crop_guild.py` | - | `-` | 含确认弹窗/勾选框/次数不足提示层 |
+| 15 | 战队 BOSS 征讨裁剪 | `uv run python tools/crop/crop_guildboss.py` | - | `-` | gb_entry(战队页卡标题，避开红点/状态字)+gb_max(前提判据)+gb_go(出击)+gb_done+gb_ok+gb_armed_title(每期「本期战术武装」推荐弹窗标题)；gb_ok 必须核验不在征讨页命中(躲 100% 进度条)；gb_done 太大不做区分度矩阵(zone<模板会 assert)；⭐ gb_armed_ok(「知道了」)**不裁**: 与 claim_btn(「领取」)同款、在 _claimprobe_t0 上 0.946 假命中 → 用例改用标题位置 + ARMED_OK_DY(730) 偏移点击 |
+| 16 | 十年集结裁剪 | `uv run python tools/crop/crop_rally.py` | - | `-` | 首页活动卡 + 集结页 + 弹幕面板 |
+| 17 | 逐星补给裁剪 | `uv run python tools/crop/crop_star.py` | - | `-` | 长阶页入口/×5 装置(**必须裁可领态**: 已领后装置整个消失) + 补给面板领5次键/X；两源图分两次 run_crop，另做跨页核验(4 模板在闯关页/首页须 ≤0.86) |
 
 ### 测试/自检（`tools/selftest/`，27 个）
 
@@ -469,7 +470,7 @@ wb/registry.py     用例注册表（清单单一事实源：smoke 校验与 REA
 wb/selftest_kit.py 离线回放脚手架（实测帧 + 点击驱动状态机，零消耗验证分支）
 wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）
 tools/cases/       28 个每日用例: free_stamina, free_sweep, free_gift, free_explore, sweep_stage, boss_mode, boss_hyper, void_rift, meteor_trap, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, guild_boss, clear_stamina, clear_bag, quick_advance, friend_stamina, s_advance, star_supply, endless_world, claim_activity, claim_reward, community_reward, redeem_code
-tools/crop/        16 个模板裁剪工具: crop_quickadv, crop_sadv, crop_adgiveup, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_hyper, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
+tools/crop/        17 个模板裁剪工具: crop_quickadv, crop_sadv, crop_adgiveup, crop_rdhome, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_hyper, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
 tools/selftest/    27 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, ad_text_selftest, ad_close_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, clear_stamina_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, redeem_code_selftest, smoke
 tools/maint/       9 个维护工具: capture_fixtures, live_check, battle_watch, close_popup, probe_live, docs, build_digits, build_bscore_digits, build_mcount_digits
 templates/         按钮模板图（257 张，由 crop_* 用例与运行期裁剪产出）

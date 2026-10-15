@@ -55,7 +55,7 @@ TOOL_WAIT = 75.0                    # 冷启动等待上限(微信拉起小程�
 # ---- 小程序坐标（客户区实测，已含右半偏移）------------------------
 # ⚠ 2026-10-14 全部重标（小程序真实窗口 731×1369）：旧值按误测的 1455 基准标注，
 #   除 XY_HOME_CODE_ENTRY 恰好落在窗口内，其余 x 均 >731 → 永远点不到。
-XY_HOME_CODE_ENTRY = (365, 700)     # 首页「雷霆兑换码」入口（实测有效）
+XY_HOME_CODE_ENTRY = (283, 707)     # 首页「雷霆兑换码」入口（单屏基准；仅模板未命中时兜底）
 XY_BATCH_COPY = (268, 1330)         # 底部工具栏「批量复制」（实测）
 XY_COPY_SELECTED = (378, 768)       # 弹窗「复制所选内容」（实测；「今日失效」默认已勾选）
 XY_BATCH_CLOSE = (378, 857)         # 弹窗「关闭」（实测）
@@ -86,8 +86,8 @@ def _px(xy: tuple[int, int], w: int, h: int, bw: int, bh: int) -> tuple[int, int
 #     · 分屏  ：窗口 ≈1455 宽，内容只占窗口的**某一半**  → 整体平移 ±728
 #   旧常量把两种布局混在一起（入口按左半标、底部按钮按右半标）→ 换模式就失效。
 #   这里改成**运行时探测 + 统一平移**，并打日志便于事后核对真实模式。
-RD_TW, RD_TH = 365, 96              # 「雷霆兑换码」入口模板尺寸（templates/rd_home_entry.png）
-RD_ENTRY_CXY = (262, 700)           # 该模板在**单屏**下的命中中心（基准）
+RD_TW, RD_TH = 128, 98              # 「雷霆兑换码」入口模板尺寸（2026-10-15 重裁：小程序改版换位）
+RD_ENTRY_CXY = (283, 707)           # 该模板在**单屏**下的命中中心（基准）
 _OFF: tuple[int, int] = (0, 0)      # 内容画布相对基准的平移量（setup_layout 里定）
 
 
@@ -101,9 +101,9 @@ def detect_pane(sc) -> tuple[int, int]:
 
     入口模板只在**小程序首页**存在；不在首页时退回宽度推断，并把依据写进日志。
     """
-    hit = sc.find("rd_home_entry", 0.80)
+    hit = sc.find("rd_home_entry", 0.92)
     if hit is not None:
-        cx, cy = hit[0] + RD_TW // 2, hit[1] + RD_TH // 2
+        cx, cy = hit[0], hit[1]        # ⚠ find 返回的是**中心**坐标（加了 RD_TW//2 会多偏半格）
         dx, dy = cx - RD_ENTRY_CXY[0], cy - RD_ENTRY_CXY[1]
         log(f"[layout] 窗口 {sc.w}x{sc.h} 入口模板命中中心({cx},{cy}) → 偏移({dx},{dy})")
         return dx, dy
@@ -245,8 +245,22 @@ def ensure_code_page(sc) -> bool:
         log("小程序已在兑换码页")
         return True
     for attempt in range(3):
-        sc.click_at(*_t(XY_HOME_CODE_ENTRY),
-                    "雷霆兑换码" + ("" if attempt == 0 else f"·重试{attempt + 1}"))
+        tag = "雷霆兑换码" + ("" if attempt == 0 else f"·重试{attempt + 1}")
+        # ⭐ 2026-10-15 用户反馈「点击错了，点到了活动时间线」：
+        #   小程序改版后首页图标顺序变了（「雷霆兑换码」由第 3 位挪到第 2 位），
+        #   硬编码 (365,700) 恰好压在「活动时间线」上 → 点进去 24s 找不到「今晚失效」→ 反复重试。
+        #   改为**模板驱动**：命中入口模板就点模板中心；再用 x 区间校一遍，命中位置
+        #   不在「第 2 格」范围内直接拒绝（宁可不点，也不能点错）。
+        hit = sc.find("rd_home_entry", 0.92)
+        if hit is not None:
+            cx, cy = hit[0], hit[1]        # find 返回**中心**坐标
+            if not (180 <= cx <= 400):
+                log(f"⚠ 入口模板命中中心 x={cx} 不在首页第 2 格区间[180,400] → 拒绝点击(防点错)")
+                return False
+            sc.click_at(cx, cy, tag)
+        else:
+            log("⚠ 入口模板未命中 → 用基准坐标兜底")
+            sc.click_at(*_t(XY_HOME_CODE_ENTRY), tag + "(基准)")
         for _ in range(12):                  # 最多等 ~24s（冷启动后小程序还在渲染）
             nap(2.0)
             if sc.find("rj_expire_tag") is not None:
