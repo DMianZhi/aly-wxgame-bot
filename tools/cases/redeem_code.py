@@ -97,21 +97,25 @@ def _t(xy: tuple[int, int]) -> tuple[int, int]:
 
 
 def detect_pane(sc) -> tuple[int, int]:
-    """探测内容画布平移量 (dx, dy)：优先用入口模板定位，否则按窗口宽推断。
+    """探测**工具页坐标**的平移量 (dx, dy)。
 
-    入口模板只在**小程序首页**存在；不在首页时退回宽度推断，并把依据写进日志。
+    2026-10-15 实测澄清（小程序**单屏/双栏两种布局都存在**，此前两版注释互相矛盾）：
+      · 单屏 731   ：内容铺满窗口，入口与工具页同栏 → 偏移 (0,0)
+      · 双栏 1455  ：**左栏=首页**（入口 283,707 ✓ 不变）、**右栏=内容页**
+                     （实测「今晚失效」标签在 (1093,484)）→ 工具页坐标整体 +728
+    ⚠ 入口点击已改**模板驱动**，不受这里偏移影响；本函数只管工具页坐标。
     """
+    if sc.w >= 1300:                      # 双栏：内容页在右栏
+        log(f"[layout] 窗口 {sc.w}x{sc.h} 双栏(左栏首页/右栏内容页) → 工具侧偏移({TOOL_PANE},0)")
+        return TOOL_PANE, 0
     hit = sc.find("rd_home_entry", 0.92)
     if hit is not None:
-        cx, cy = hit[0], hit[1]        # ⚠ find 返回的是**中心**坐标（加了 RD_TW//2 会多偏半格）
+        cx, cy = hit[0], hit[1]        # ⚠ find 返回的是**中心**坐标
         dx, dy = cx - RD_ENTRY_CXY[0], cy - RD_ENTRY_CXY[1]
-        log(f"[layout] 窗口 {sc.w}x{sc.h} 入口模板命中中心({cx},{cy}) → 偏移({dx},{dy})")
+        log(f"[layout] 窗口 {sc.w}x{sc.h} 单屏 入口模板命中中心({cx},{cy}) → 偏移({dx},{dy})")
         return dx, dy
-    if sc.w <= 1000:
-        log(f"[layout] 窗口 {sc.w}x{sc.h} 单屏 → 偏移(0,0)")
-        return 0, 0
-    log(f"[layout] ⚠ 窗口 {sc.w}x{sc.h} 分屏且模板未命中(可能不在首页) → 按右半推断({TOOL_PANE},0)")
-    return TOOL_PANE, 0
+    log(f"[layout] 窗口 {sc.w}x{sc.h} 单屏(模板未命中) → 偏移(0,0)")
+    return 0, 0
 
 
 def setup_layout(sc) -> tuple[int, int]:
@@ -140,9 +144,15 @@ def tool_screen(dry: bool = False, wait: float = 20.0):
                 break
             nap(1.0)
             continue
-        ready = cur.w >= TOOL_W * 0.95        # 必须是就绪宽度, 不是加载中间态(728)
-        if ready and rect is not None and (cur.w, cur.h) == (rect.w, rect.h):
-            return kit.Screen(cur, dry=dry, prefix="rd_")
+        # ⭐ 2026-10-15「明明有今晚失效」实跑失败真因：
+        #   旧判据 cur.w >= TOOL_W*0.95(=694) 会把**加载中间态 728** 当就绪
+        #   （双栏完整宽 1455）→ 只抓到左栏首页、永远看不到右栏的「今晚失效」标签。
+        #   → 改为「尺寸稳定两次 **且内容可识别**」：认出首页入口或兑换码页标签才算就绪。
+        if rect is not None and (cur.w, cur.h) == (rect.w, rect.h):
+            probe = kit.Screen(cur, dry=True, prefix="rd_")
+            if (probe.find("rj_expire_tag", 0.90) is not None
+                    or probe.find("rd_home_entry", 0.92) is not None):
+                return kit.Screen(cur, dry=dry, prefix="rd_")
         rect = cur
         nap(1.0)
     return kit.Screen(rect, dry=dry, prefix="rd_") if rect else None
@@ -260,7 +270,8 @@ def ensure_code_page(sc) -> bool:
             sc.click_at(cx, cy, tag)
         else:
             log("⚠ 入口模板未命中 → 用基准坐标兜底")
-            sc.click_at(*_t(XY_HOME_CODE_ENTRY), tag + "(基准)")
+            # ⚠ 入口恒在**左栏**，不能用 _t()（双栏时 _t 会加 +728 跑到右栏）
+            sc.click_at(*XY_HOME_CODE_ENTRY, tag + "(基准)")
         for _ in range(12):                  # 最多等 ~24s（冷启动后小程序还在渲染）
             nap(2.0)
             if sc.find("rj_expire_tag") is not None:
