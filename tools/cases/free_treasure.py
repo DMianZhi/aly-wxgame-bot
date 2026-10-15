@@ -148,8 +148,9 @@ def one_chest(sc: kit.Screen, hit, label: str) -> bool:
         st = sc.look("jump_no", "claim_btn", "ad_rewarded", "ad_close", "treasure_help")
         jno, cbtn, adr, adc = st["jump_no"], st["claim_btn"], st["ad_rewarded"], st["ad_close"]
         page = st["treasure_help"] is not None
+        adr_s = f"{adr[2]:.3f}" if adr else "——"
         log(f"t={kit.time.time() - t0:5.1f} jump_no={jno is not None} claim={cbtn is not None} "
-            f"ad_close={adc is not None} ad_rewarded={adr is not None} page={page}")
+            f"ad_close={adc is not None} ad_rewarded={adr_s} page={page}")
 
         if jno is not None:
             sc.click(jno, "不使用(跳过卡)")
@@ -170,6 +171,17 @@ def one_chest(sc: kit.Screen, hit, label: str) -> bool:
         if adr is not None and adc is not None and adr[2] >= TH_REWARDED:    # 广告播完 → 关
             ad_seen = True
             sc.click(adc, "广告关闭")
+            kit.nap(2.0)
+            continue
+        if adc is not None and kit.time.time() - t0 >= kit.AD_FALLBACK_AT:
+            # ⭐ 2026-10-15 实测（用户反馈「有卡流程了」）: 「已获得奖励」走**字形路径**时
+            #   分数可能落在 0.86~0.93 之间（欧派皮肤实测 0.9159）→ 既进不了上面
+            #   ≥TH_REWARDED(0.93) 的分支，又因 adr 非 None 跳过下面「被盖住」兜底
+            #   → 干等到 150s 超时（实测 t=103.9→150 一直 True/True/False）。
+            #   超过 AD_FALLBACK_AT 秒仍只有「关闭」→ 只凭「关闭」关掉（兑底差允）。
+            log(f"  「已获得奖励」分数长期不足(adr={adr_s}) → 仅凭「关闭」关广告")
+            ad_seen = True
+            sc.click(adc, "广告关闭(兜底)")
             kit.nap(2.0)
             continue
         if not page and adc is None and adr is None:

@@ -40,6 +40,7 @@ LEFT_DONE = "_ts_treasure_left_done.png"     # 左卡已领（合成: 涂掉左 
 BOTH_DONE = "_ts_treasure_both_done.png"     # 两卡都领完（合成）
 AD_PLAY = "_ts_ad_playing.png"               # 广告播放中（合成: 全屏盖住，无按钮）
 AD_DONE = "_ts_ad_done.png"                  # 广告播完（合成: 盖住 + 已获得奖励 + 关闭）
+AD_LOW = "_ft_ad_pending.png"                # 广告播完**真帧**: 「已获得奖励」仅 0.9159(<0.93 门槛)
 CLAIM_L = "_ts_claim_left.png"               # 恭喜获得（合成: 左 icon 已消 + 领取键）
 CLAIM_R = "_ts_claim_right.png"              # 恭喜获得（合成: 两 icon 全消 + 领取键）
 
@@ -168,6 +169,24 @@ def case_dry(rp):
     return good, f"dry run={ok} 点击={rp.real_clicks}(期望空) 写盘={rp.shots}(期望空)"
 
 
+def case_ad_fallback(rp):
+    """广告播完、但「已获得奖励」分数偏低（真帧 0.916 < TH_REWARDED 0.93）时的兜底。
+
+    ⭐ 2026-10-15 现场（用户「这个案例有卡流程了」）: 该分数落在 0.86~0.93 之间 →
+      既进不了 ≥TH_REWARDED 的分支、又因 adr 非 None 跳过「被盖住」兜底 →
+      干等到 FLOW_TIMEOUT 150s（实测 t=103.9→150 一直 True/True/False）。
+      合成夹具 AD_DONE 是**贴模板原图**（分数≈1.0），永远测不出这个区间 → 只能用真帧。
+    """
+    ft.one_chest(_sc(), (93, 1247, 1.0), "回放")
+    idx = [i for i, (x, y) in enumerate(rp.real_clicks)
+           if abs(x - 786) <= 8 and abs(y - 129) <= 8]
+    t_close = rp.times[idx[0]] if idx and idx[0] < len(rp.times) else -1.0
+    ok = bool(idx) and 35 <= t_close <= 70
+    return ok, (f"首次点「关闭」@{t_close:.0f}s（须35~70s=AD_FALLBACK_AT 兜底生效；"
+                f"旧逻辑永不点→干等到150s）共{len(idx)}次"
+                f"（单帧回放点完不会切页，故会重复点，只看首次时刻）")
+
+
 def case_lock(rp):
     name = "free_treasure_selftest_probe"
     with kit.single_instance(name, ttl=60) as g1:
@@ -183,6 +202,7 @@ SCENES = [
     ("双宝箱(按 x 升序消费)", [PAGE2, AD_PLAY, AD_DONE, CLAIM_L, LEFT_DONE,
                           AD_PLAY, AD_DONE, CLAIM_R, BOTH_DONE], case_two_chests),
     ("dry 零点击零写盘", [PAGE2], case_dry),
+    ("广告播完但「已获得奖励」分数偏低(真帧 0.916) → 兜底仅凭「关闭」", [AD_LOW], case_ad_fallback),
     ("并发锁互斥", [PAGE2], case_lock),
 ]
 
