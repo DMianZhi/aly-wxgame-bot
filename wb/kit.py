@@ -232,6 +232,10 @@ class Screen:
         self.delay = delay
         self.planned: list[tuple[str, int, int]] = []   # dry 模式记录的计划点击
         self.clicks: list[tuple[str, int, int]] = []    # 实跑记录
+        self._frame = None           # 帧缓存（见 grab）
+        self._frame_t = 0.0
+        self._miss_key = None        # 同帧负缓存 key（见 look）
+        self._miss: set = set()
 
     # ---- 取帧 / 匹配 ------------------------------------------------
     @property
@@ -250,21 +254,57 @@ class Screen:
         if self.deadline is not None and now() > self.deadline:
             raise CaseTimeout("用例总时长超限")
 
-    def grab(self):
-        """截取当前窗口画面（离线自检会替换掉 _bot.grab_window）。"""
+    def grab(self, *, fresh: bool = False, ttl: float = 0.45):
+        """截取当前窗口画面（离线自检会替换掉 _bot.grab_window）。
+
+        ⚠️ 2026-10-15 性能（用户反馈「没有 loading 却每步等 10 多秒」）：
+           旧版**无缓存** —— `find`/`look` 每次调用都重新截屏，而 goto_home 一轮里
+           is_home + 3 个弹窗检查 + 5 个返回键候选 = **20+ 次匹配**，每次都要重截。
+           实测单次 grab_window 27ms + find_on_frame 111ms(多路径变体更多) →
+           一轮 5s、日志里两次「返回」间隔 **12~14s**。
+           → 同一批检查共用一帧（ttl 默认 0.45s），点击类动作会让缓存失效
+             （见 _invalidate），所以不会看到"点完还拿旧帧"。
+           ⚠ dry/replay 模式**禁用缓存**：离线自检按帧序列回放，缓存会跳帧。
+        """
         self._tick()
-        return _bot.grab_window(self.rect)
+        if self.dry or fresh:
+            return _bot.grab_window(self.rect)
+        t = time.monotonic()
+        if self._frame is not None and t - self._frame_t < ttl:
+            return self._frame
+        img = _bot.grab_window(self.rect)
+        self._frame, self._frame_t = img, t
+        return img
+
+    def _invalidate(self) -> None:
+        """丢弃帧缓存（点击/拖动后必须调，否则下一次检查会拿点击前的旧帧）。"""
+        self._frame = None
+        self._miss_key = None
 
     def look(self, *names: str, th: float | None = None) -> dict:
         """一次截屏，批量匹配多个模板；返回 {name: (x, y, score) | None}。
 
         阈值取 max(th 或 self.th, TEMPLATE_MIN[name])，与 find_in_game 语义一致。
+
+        ⚠️ 2026-10-15 性能：**同一帧内已查过且未命中**的模板直接返回 None（负缓存）。
+           场景：goto_home 一轮里 is_home / dismiss_group_popup / close_ad_page /
+           claim_if_present / 5 个返回键候选会**反复查同一批模板**，而每个模板的
+           一次查找 = 4~5 个候选尺寸 × 多个变体的全图匹配（实测单帧约 0.2s/模板）。
+           帧一换（grab 拿到新帧）或发生点击（_invalidate）就自动失效，不会脏读。
         """
         img = self.grab()
         floor = self.th if th is None else th
+        key = (id(img), floor)
+        if key != self._miss_key:      # 换帧 → 清空负缓存
+            self._miss_key, self._miss = key, set()
         out: dict = {}
         for n in names:
+            if n in self._miss:
+                out[n] = None
+                continue
             out[n] = _bot.find_on_frame(img, n, floor)
+            if out[n] is None:
+                self._miss.add(n)
         return out
 
     def find(self, name: str, th: float | None = None):
@@ -328,6 +368,7 @@ class Screen:
         log(f"点击 {what} @({x},{y}) score={score:.3f}" + (f" · {note}" if note else ""))
         self.clicks.append((what, x, y))
         _bot.click_xy(x, y, self.jitter, self.delay, self.rect, False)
+        self._invalidate()      # 画面已变 → 丢弃帧缓存(否则下次检查拿到点击前的旧帧)
 
     def click_at(self, x: int, y: int, what: str) -> None:
         """按坐标点（用于颜色判态等非模板定位的场景）。
@@ -387,6 +428,7 @@ class Screen:
         """
         _bot.drag_xy(*_bot.ref_to_client(x1, y1, self.w, self.h),
                      *_bot.ref_to_client(x2, y2, self.w, self.h), self.rect, self.dry, **kw)
+        self._invalidate()
 
     def find_all(self, name: str, th: float | None = None, max_hits: int = 4,
                  gap_ratio: float = 0.8) -> list[tuple[int, int, float]]:

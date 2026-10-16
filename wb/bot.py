@@ -298,6 +298,32 @@ def _resize_candidates(w: int, h: int) -> list[tuple[int, int]]:
     return out
 
 
+_SCALE_CACHE: tuple | None = None      # (key, canvas) —— 见 _scaled_canvas
+
+
+def _scaled_canvas(img: np.ndarray, cw: int, ch: int, w: int, h: int) -> np.ndarray:
+    """整帧重采样结果**单槽缓存**（同一帧 + 同一候选尺寸只算一次）。
+
+    ⚠️ 2026-10-15 性能（用户反馈「没有 loading，为什么每步还要等这么久」）：
+       match_adaptive 对**每个候选尺寸**都要 resize 整帧（`_resize_candidates` 有 4~5 个），
+       而未命中时要**遍历全部候选** —— 于是同一帧上连续查 N 个模板
+       = N × 4~5 次「整帧 resize + 全图匹配」。实测 goto_home 一轮 21 次查询 = **29s**
+       （日志里两次「返回」间隔 12~14s 就是这个）。
+       同一帧 + 同一目标尺寸的结果是确定的 → 缓存最近一帧的缩放结果（key 含 id/shape），
+       命中缓存即可省掉绝大部分 resize 开销。
+    """
+    global _SCALE_CACHE
+    key = (id(img), img.shape[0], img.shape[1], cw, ch)
+    c = _SCALE_CACHE
+    if c is not None and c[0] == key:
+        return c[1]
+    canvas = cv2.resize(
+        img, (cw, ch),
+        interpolation=cv2.INTER_AREA if cw < w else cv2.INTER_LINEAR)
+    _SCALE_CACHE = (key, canvas)
+    return canvas
+
+
 def match_adaptive(img: np.ndarray, tpl: np.ndarray, threshold: float,
                    pre=None):
     """窗口尺寸≠基准时多候选重采样取最高分，坐标自动映射回真实客户区。
@@ -319,9 +345,7 @@ def match_adaptive(img: np.ndarray, tpl: np.ndarray, threshold: float,
     best_i = 0
     for i in order:
         cw, ch = cands[i]
-        canvas = img if (cw, ch) == (w, h) else cv2.resize(
-            img, (cw, ch),
-            interpolation=cv2.INTER_AREA if cw < w else cv2.INTER_LINEAR)
+        canvas = img if (cw, ch) == (w, h) else _scaled_canvas(img, cw, ch, w, h)
         hit = match_template(*(pre(canvas, tpl) if pre else (canvas, tpl)), threshold)
         if hit is None:
             continue
@@ -329,7 +353,14 @@ def match_adaptive(img: np.ndarray, tpl: np.ndarray, threshold: float,
         got = (round(hit[0] * sx), round(hit[1] * sy), hit[2])
         if best is None or got[2] > best[2]:
             best, best_i = got, i
-        if best[2] >= max(0.97, threshold + 0.07):   # 命中够硬，省下其余假设
+        # ⚠️ 2026-10-15 性能（用户反馈「没有 loading，为什么每步还要等这么久」）：
+        #   旧条件是 `>= max(0.97, threshold+0.07)` —— 而实测命中分常年在
+        #   **0.90~0.97**（颜色模板随皮肤漂移），于是**永远不提前结束**，
+        #   每个模板都要遍历全部 4~5 个候选尺寸 → 单模板 ~0.2s，goto_home 一轮十几秒。
+        #   改成「**命中即停**」：只要能过 threshold 就已经算找到（threshold 本身留了余量，
+        #   TEMPLATE_MIN 另有专项下限），分数高低只影响置信**不影响坐标**，继续试探只会
+        #   在更低的候选上重复做无用功。
+        if best[2] >= threshold + 0.02:
             break
     if best is None:
         return None
