@@ -170,6 +170,30 @@ def quality_cols(sc: kit.Screen, img) -> tuple[list[int], list[int]]:
     return gcols, wcols
 
 
+GO_BAND = (345, 1295, 176, 26)   # 「快速进阶」键本体带(基准坐标)
+GO_YELLOW_MIN = 0.30             # 黄键: 黄色像素占比下限(真帧: 黄键 0.70 / 灰键 0.00)
+
+
+def go_ready(sc: kit.Screen, img=None) -> float:
+    """详情页「快速进阶」键的**黄色像素占比** —— 黄键(可进阶)高; 灰键(禁用, 下方写
+    「当前指定消耗的装备已无法进阶」) ≈ 0。
+
+    真帧标定(2026-10-16 用户两张详情页截图): 黄键带均值 BGR(9,146,220) 黄占比 0.82 /
+    灰键带均值 (149,149,149) 黄占比 0.00 → 阈值 0.30 分得极开。
+
+    ⚠ 不能用模板分判「在场」: match_adaptive 的 _GEOM_HINT(上次命中的缩放候选优先
+      + 命中即停)会让**同一帧**的得分依赖调用顺序 —— 自检实测: 灰键单跑 0.678,
+      与黄键连跑就变 0.918(假阳性) → 判据会随上下文漂移。像素判色是确定性的。
+    """
+    im = sc.grab() if img is None else img
+    x0, y0, w, h = _bot.ref_rect_to_client(*GO_BAND, sc.w, sc.h)
+    t = im[y0:y0 + h, x0:x0 + w].astype(int)
+    if t.size == 0:
+        return 0.0
+    b, g, r = t[:, :, 0], t[:, :, 1], t[:, :, 2]
+    return float(((r > 190) & (g > 140) & (b < 110)).mean())
+
+
 def white_cols(sc: kit.Screen, img) -> list[int]:
     """详情页**默认态**「白色品质」材料槽列 —— **整格**判: 灰白像素(mn>140 且极差<60)占比
     达 WHITE_MIN。
@@ -259,6 +283,15 @@ def refine_row_s(sc: kit.Screen) -> int:
         if _exp_over(sc, img):
             log("⚠ 「经验过多」提示在场 → 停止 S 装升蓝(本轮及后续全部放弃)")
             return STOP_ALL
+        # ⚠ 2026-10-16 用户反馈「点进来又白退」: 「快速进阶」**灰键**时下方写着
+        #   「当前指定消耗的装备已无法进阶」—— 该行压根升不了(真帧: 黄键带 0.82 /
+        #   灰键带 0.00 黄占比)。先查黄键在不在, 不在就立刻收手,
+        #   不再白走「调整数量 → 清零 → 加料 → 点键」整套(用户: 白点一次很浪费)。
+        gs = go_ready(sc, img)
+        if gs < GO_YELLOW_MIN:
+            log(f"「快速进阶」黄键不在场(黄像素占比 {gs:.2f}) = 当前指定消耗的装备已无法进阶 → 本行收手")
+            sc.shot("nogo_detail")
+            return done
         gcols, wcols = quality_cols(sc, img)
         if not gcols and not wcols:
             log("本行已无绿/白材料 → 收手")

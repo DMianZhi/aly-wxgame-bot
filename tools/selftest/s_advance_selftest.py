@@ -51,6 +51,17 @@ def _case_detail(rp):
     return (g, w) == ([], [0]), f"详情页 quality_cols=(绿{g}, 白{w}) 期望=(绿[], 白[0])"
 
 
+def _case_go(expect: bool, label: str):
+    """详情页「快速进阶」黄键在场性(2026-10-16: 灰键=「当前指定消耗的装备已无法进阶」)。"""
+    def fn(rp):
+        img = rp.imgs[0]
+        s = sa.go_ready(_Sc(img), img)
+        return (s >= sa.GO_YELLOW_MIN) == expect, (
+            f"{label}: 黄像素占比 {s:.2f} (阈值 {sa.GO_YELLOW_MIN}) 期望"
+            + ("可进阶" if expect else "灰键不可进阶"))
+    return fn
+
+
 TABS = [
     ("战机", "_sadv_user_tab_zhanji.png", [752],
      "仅第 4 行(白材料大字牌) —— 修复前返回 []"),
@@ -64,4 +75,8 @@ if __name__ == "__main__":
     st.run_one("s_advance 离线自检（列表页预筛 + 详情页判料，零消耗）",
                [(f"页签「{lb}」{note}", [fr], _case(ex, lb))
                 for lb, fr, ex, note in TABS]
-               + [("详情页第 1 槽白材料判识", ["_sadv_user_detail.png"], _case_detail)])
+               + [("详情页第 1 槽白材料判识", ["_sadv_user_detail.png"], _case_detail),
+                  ("详情页「快速进阶」黄键在场→受得进阶", ["_sadv_user_detail.png"],
+                   _case_go(True, "黄键源图")),
+                  ("详情页灰键→判不可进阶(提前收手)", ["_sadv_user_detail2.png"],
+                   _case_go(False, "灰键源图(当前指定消耗的装备已无法进阶)"))])
