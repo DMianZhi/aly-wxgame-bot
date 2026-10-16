@@ -48,6 +48,46 @@ TH_LOOSE = 0.80          # 半透明弹层里的元素，分数略降
 
 # ---------------------------------------------------------------- 日志
 
+_LOG_FH = None          # 当前用例的日志落盘句柄（None = 不落盘）
+_LOG_PATH: Path | None = None
+_LOG_ENABLED = True     # False = 完全不落盘（离线自检会关掉，避免刷一堆 log）
+
+
+def open_case_log(prefix: str = "") -> Path:
+    """把后续 log() 同步写到 logs/<prefix>_<时间戳>.log，返回路径。
+
+    ⚠️ 2026-10-15 加：之前日志**只写 stderr**，跑完就没了 —— 出问题时用户只能
+       手贴屏幕上的几行，而我需要完整时间线才能定位（比如"两次返回间隔 12s"
+       这种耗时异常必须看全文）。落盘后可直接 grep/对比。
+       TUI(wbtui) 捕获的是子进程 stderr，无需改动；本函数只管落盘一份到文件。
+    """
+    global _LOG_FH, _LOG_PATH
+    if not _LOG_ENABLED:
+        return Path()
+    close_case_log()
+    try:
+        d = APP_DIR / "logs"
+        d.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        name = f"{prefix or 'run'}_{stamp}.log".replace("__", "_")
+        _LOG_PATH = d / name
+        _LOG_FH = open(_LOG_PATH, "w", encoding="utf-8")
+        _LOG_FH.write(f"# wb 用例日志  {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    except Exception:                     # 落盘失败绝不阻断用例
+        _LOG_FH, _LOG_PATH = None, None
+    return _LOG_PATH or Path()
+
+
+def close_case_log() -> None:
+    """关闭日志文件（用例结束时可调；进程退出也会自动 flush/close）。"""
+    global _LOG_FH
+    if _LOG_FH is not None:
+        try:
+            _LOG_FH.close()
+        except Exception:  # noqa: BLE001
+            pass
+        _LOG_FH = None
+
 
 def log(msg: str, *, _step: bool = True) -> None:
     """统一日志 —— **一律写 stderr**，把 stdout 完整让给 --json 结果。
@@ -59,6 +99,12 @@ def log(msg: str, *, _step: bool = True) -> None:
     --json 的 steps（v1 的零侵入做法，见 Result）。
     """
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
+    if _LOG_FH is not None:               # 同步落盘一份（见 open_case_log）
+        try:
+            _LOG_FH.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+            _LOG_FH.flush()
+        except Exception:  # noqa: BLE001
+            pass
     if _step and CURRENT is not None and msg.lstrip().startswith(STEP_PREFIX):
         ok = not msg.lstrip().startswith(("⚠", "✗"))
         CURRENT.add_step(msg, ok)
@@ -234,6 +280,9 @@ class Screen:
         self.clicks: list[tuple[str, int, int]] = []    # 实跑记录
         self._frame = None           # 帧缓存（见 grab）
         self._frame_t = 0.0
+        open_case_log(prefix)        # ⚠ 自动落盘 logs/<prefix>_<ts>.log（见 open_case_log）
+        if _LOG_PATH is not None:    # 告知路径，方便跑完直接找文件
+            log(f"日志落盘 → {_LOG_PATH}")
         self._miss_key = None        # 同帧负缓存 key（见 look）
         self._miss: set = set()
 

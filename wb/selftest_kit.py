@@ -191,6 +191,8 @@ def replay(frames: list[str], *, holds: dict[int, float] | None = None):
     rp = Replay(frames, holds=holds)
     shim = _ShimTime(_time)
     orig = (_bot.grab_window, _bot.click_xy, _bot.configure_mouse, _bot.drag_xy, _kit.time, cv2.imwrite)
+    _kit._LOG_ENABLED = False      # 自检不落盘（否则每份自检都刷一个 logs/*.log）
+    _kit.close_case_log()
     _bot.grab_window = rp.grab
     _bot.click_xy = rp.click
     _bot.configure_mouse = rp.configure_mouse
@@ -204,6 +206,7 @@ def replay(frames: list[str], *, holds: dict[int, float] | None = None):
     finally:
         (_bot.grab_window, _bot.click_xy, _bot.configure_mouse, _bot.drag_xy,
          _kit.time, cv2.imwrite) = orig
+        _kit._LOG_ENABLED = True
 
 
 def scene(name: str, frames: list[str], fn, *, quiet: bool = False,

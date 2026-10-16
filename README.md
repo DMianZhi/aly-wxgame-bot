@@ -466,7 +466,7 @@ wbtui/             交互外壳：rich 菜单式 TUI（uv run python -m wbtui）
 config.toml        阈值、拟人点击参数、窗口裁边
 wb/cfg.py          配置加载（路径/阈值/点击参数的唯一来源）
 wb/bot.py          窗口定位、截屏、模板匹配、拟人点击
-wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁 / 广告流 / 回首页 / 看门狗）；--json 结构化结果契约（stdout 一行 JSON，日志走 stderr）
+wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁 / 广告流 / 回首页 / 看门狗）；--json 结构化结果契约（stdout 一行 JSON，日志走 stderr）；每次跑**自动落盘** `logs/<前缀>_<时间戳>.log`（stderr 全文副本，自检不落盘、本就忽略入库）
 wb/registry.py     用例注册表（清单单一事实源：smoke 校验与 README 清单都读它）
 wb/selftest_kit.py 离线回放脚手架（实测帧 + 点击驱动状态机，零消耗验证分支）
 wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）
