@@ -45,6 +45,11 @@ S_AREA_MIN = 120
 S_FILL_MIN = 0.62
 S_BBOX_MAX = qa.S_BBOX_MAX   # 徽标紧实: bbox 边长上限(沿 qa 标定 32)
 LIST_AREA = qa.LIST_AREA
+# ⚠ 2026-10-16 新增: S 徽标**专属扫描区**(主图格左上角那列)。
+#   LIST_AREA 是**材料格**列(x 从 180 起), 而 S 徽标贴在主图格左上角(基准 x≈65)
+#   → 拿 LIST_AREA 扫徽标永远扫不到, 只会把材料格里的橙色误当徽标。
+#   基准 x 25~160 ↔ 客户区 x 21~144(739 宽帧): 含徽标 41~73、不含材料格 174+。
+BADGE_AREA = _bot.measured_rect(25, 262, 135, 940, qa.REF)
 LIST_STILL_DIFF = 2.0    # 列表区「上滑后画面没动」的像素均差阈值(0~255)
                          #   滚动成功时整屏位移 → 均差 >>20; 已到底时拖拽无位移 → ≈0
                          #   → 2.0 余量很大, 不需要精细标定
@@ -93,8 +98,16 @@ def s_rows(sc: kit.Screen, img) -> list[int]:
       ① 该行有 S 徽标(橙色团块直扫, 不依赖绿格 —— 白品质 S 装没有绿格);
       ② 该行有绿格(qa._green_tiles)或白格(white_tiles) —— 行 ±25px 内。
     只有徽标没有绿/白材料的 S 行直接跳过, 不浪费详情页那套步骤。
+
+    ⚠ 2026-10-16 两处修正(用户实跑 logs/sadv_20261016-131442.log + 3 张页签截图):
+      ① 徽标扫描区原先错用 LIST_AREA(x 从 180 起) —— 那是**材料格**列, 而 S 徽标
+         贴在**主图格左上角**(基准 x≈65) → 徽标整体在 ROI 之外, 一路扫不到,
+         只偶尔把材料格里的橙色误当徽标(日志 "y=275/276 无绿/白材料格" 就是假阳性)。
+         现改用 BADGE_AREA(基准 x 25~160)专扫徽标列。
+      ② 返回值改为**行中心 y**(匹配到的材料格中心 y), 不再是徽标 y —— 徽标在行顶,
+         直接拿去点主图会偏上 ~24px(客户区), 是「点两次都进不了详情页」的一半原因。
     """
-    x0, y0, w, h = _bot.ref_rect_to_client(*LIST_AREA, sc.w, sc.h)
+    x0, y0, w, h = _bot.ref_rect_to_client(*BADGE_AREA, sc.w, sc.h)
     roi = (sc.grab() if img is None else img)[y0:y0 + h, x0:x0 + w]
     if roi.size == 0:
         return []
@@ -116,10 +129,17 @@ def s_rows(sc: kit.Screen, img) -> list[int]:
         # ⚠ 参照系: 徽标悬浮在材料格**顶沿**(格 90 高), 绿簇中心 y ≈ 徽标 y + 45;
         #   白格小(30 高)中心 ≈ 徽标 y + 20。直接拿徽标 y 对格中心 y 会差 35~65px
         #   (2026-10-12 实测: 徽标 631 vs 绿格 666 被旧 ±25 容差错杀)。
-        near_g = any(abs((by + 45) - gy) <= 45 for gy in greens)
-        near_w = any(abs((by + 20) - wy) <= 30 for wy in whites)
-        if near_g or near_w:
-            ys.append(by)
+        cand: list[tuple[int, int]] = []
+        for gy in greens:
+            d = abs((by + 45) - gy)
+            if d <= 45:
+                cand.append((d, gy))
+        for wy in whites:
+            d = abs((by + 20) - wy)
+            if d <= 30:
+                cand.append((d, wy))
+        if cand:
+            ys.append(min(cand)[1])       # 行中心 y ≈ 最近材料格中心(供点主图)
         else:
             log(f"列表页 y={by}: S 行但无绿/白材料格 → 列表页直接跳过(不点详情)")
     return sorted(set(ys))
@@ -360,8 +380,14 @@ def run_tab(sc: kit.Screen, tab: str, label: str, cap: int) -> int:
         #   转场瞬帧上抖动(列表页被判 HOME) —— 所以点击后**轮询等详情页**
         #   (最多 3s), 落空再等稳重找重点一次。
         entered = False
+        xrow = _bot.ref_rect_to_client(ROW_ICON_X, 0, 1, 1, sc.w, sc.h)[0]
         for attempt in range(2):
-            sc.click_base(ROW_ICON_X, y, f"S行主图(y={y}, 第{attempt + 1}次)")
+            # ⚠ 2026-10-16: 这里原先写 sc.click_base(ROW_ICON_X, y) —— 但 y 是
+            #   **客户区**坐标(s_rows 算出来的), click_base 又会拿它当基准坐标再换算一次
+            #   → 双重缩放, 点位上浮 ~20px(实跑日志: 想点 y=275, 实际落在 y=256),
+            #   正好落在行上沿缝隙 → 「点两次都进不了详情页」。qa.run_tab 用的是
+            #   click_at + 客户区 x, 这里对齐它。
+            sc.click_at(xrow, y, f"S行主图(y={y}, 第{attempt + 1}次)")
             deadline = kit.time.time() + 3.0
             while kit.time.time() < deadline:
                 if qa.page(sc) == qa.DETAIL:
