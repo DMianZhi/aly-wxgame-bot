@@ -58,6 +58,11 @@ ARROW_LEFT = (39, 697)      # 左缘「上一个」箭头(暗色样式模板分�
 CHAL_BTN = (511, 1407)      # 「超限挑战」按钮(基准坐标; 811 帧实测中心)
 DONE_TH = 0.90              # hyper_done(挑战成功绿标)阈值: 已击败 1.000 / 未完成 0.693
                             # (中间带很宽, 0.90 稳) —— 绿标在右卡右上角斜角, 左卡绿勾不串台
+NUKE_125_TH = 0.93          # hyper_125(「超限 125%」行)阈值 —— 出击前提(用户口径)
+                            # ⚠ 2026-10-15 重裁: 旧模板在真帧(818x1507)上只有 0.7044
+                            #   (裁自旧版/缩放帧) → **明明显示 125% 却判否** → "经常判断错误
+                            #   不出击"(用户反馈)。新模板紧裁同日真帧: 正验 0.9919,
+                            #   反验「普通 125%」行 0.7954 / 无关页 0.5713 → 0.93 余量充足。
 
 STATIONS = {
     "drago":   ("hyper_stn_drago",   "装甲"),
@@ -188,6 +193,24 @@ def already_done(sc: kit.Screen, img=None) -> bool:
     return _find(sc, "hyper_done", DONE_TH) is not None
 
 
+def nuke_125_ok(sc: kit.Screen, img=None) -> tuple[bool, str]:
+    """出击前提(用户口径): 抗性面板必须显示「超限 125%」才打。
+
+    返回 (是否可打, 诊断文本)。诊断文本带**实测分数**，方便下次误判时一眼定位
+    （旧版只返回 bool，模板坏了也看不出来 → 才被误归因成"规则本身错"）。
+
+    ⚠ 2026-10-15 恢复: 此门槛曾在 0cd6a25 被删——当时模板坏(真帧仅 0.7044)、
+       未击败的 boss 全判否 → 看起来像"规则把该打的漏掉了"。重裁后正验 0.9919，
+       按用户维持"必须等于 125%"的口径恢复。
+    """
+    hit = _find(sc, "hyper_125", NUKE_125_TH)
+    if hit is not None:
+        return True, f"抗性「超限 125%」命中 @({hit[0]},{hit[1]}) score={hit[2]:.3f}"
+    best = _find(sc, "hyper_125", 0.5)
+    got = f"最佳 {best[2]:.3f} @({best[0]},{best[1]})" if best else "完全未命中"
+    return False, f"抗性非「超限 125%」({got}, 阈值 {NUKE_125_TH})"
+
+
 def close_key_popup(sc: kit.Screen) -> bool:
     """关「黄金钥匙」物品详情弹窗(点超限挑战误触奖励图标时弹)。"""
     x = _find(sc, "popup_blue_x", 0.80)
@@ -305,29 +328,34 @@ def one_station(sc: kit.Screen, key: str) -> int:
         if cur is not None:
             seen.append(cur)
         bn = "未见" if cur is None else "可见"
-        # ---- 出击前提(2026-10-11 二次反馈): 只要今天未击败就打 ----
-        # (早先「非 125% 跳过」的门槛已删: 不同 boss 抗性数值不同, 那条规则把
-        #  未击败的 boss 全跳过 → 列表页 8/12、6/12 打不满, 活动最后一天漏打)
+        # ---- 出击前提(2026-10-15 恢复用户口径): 今日未击败 **且** 抗性「超限 125%」 ----
         if already_done(sc):
             log(f"--- {name} 第 {done + skipped + 1}/{BOSS_TOTAL} 场 (名条{bn}): "
                 f"今日已击败(挑战成功绿标) → 跳过")
             skipped += 1
         else:
-            log(f"--- {name} 第 {done + skipped + 1}/{BOSS_TOTAL} 场 (名条{bn}) ---")
-            won = False
-            for attempt in (1, 2):      # 失败不计完成, 原地重试一次
-                if fight_one(sc):
-                    won = True
-                    break
-                fight_settle(sc)
-                if _find(sc, "hyper_chal", 0.90) is None and not on_hyper(sc):
-                    break               # 回不到详情页/超限页, 无法原地重试
-                if attempt == 1:
-                    log(f"第 {done + 1} 场未完成 → 原地重试")
-            if not won:
-                log(f"{name}: 第 {done + 1} 场未完成 → 停在本站(如实已完成 {done})")
-                return done
-            done += 1
+            ok125, why125 = nuke_125_ok(sc)
+            if not ok125:
+                log(f"--- {name} 第 {done + skipped + 1}/{BOSS_TOTAL} 场 (名条{bn}): "
+                    f"{why125} → 不出击")
+                skipped += 1
+            else:
+                log(f"--- {name} 第 {done + skipped + 1}/{BOSS_TOTAL} 场 (名条{bn}) ---")
+                log(f"    出击前提满足: {why125}")
+                won = False
+                for attempt in (1, 2):      # 失败不计完成, 原地重试一次
+                    if fight_one(sc):
+                        won = True
+                        break
+                    fight_settle(sc)
+                    if _find(sc, "hyper_chal", 0.90) is None and not on_hyper(sc):
+                        break               # 回不到详情页/超限页, 无法原地重试
+                    if attempt == 1:
+                        log(f"第 {done + 1} 场未完成 → 原地重试")
+                if not won:
+                    log(f"{name}: 第 {done + 1} 场未完成 → 停在本站(如实已完成 {done})")
+                    return done
+                done += 1
         if done + skipped >= BOSS_TOTAL:
             break
         # ---- 切到下一个(按当前方向): 名条必须变化, 否则当丢点击重试 ----
