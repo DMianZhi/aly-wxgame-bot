@@ -65,11 +65,18 @@ ROW_ICON_X = qa.ROW_ICON_X
 
 
 def white_tiles(sc: kit.Screen, img) -> list[int]:
-    """列表页「白色材料格」的行 y(2026-10-12 真机标定)。
+    """列表页「白色(白品质)材料格」的行 y(2026-10-12 标定, 2026-10-16 放宽)。
 
-    白格 = 高亮团块 mn>140、area 250~800、bbox 24~48、近方形(0.6~2.6)。
-    实测: 白格 33x30/330px(均值 BGR≈239,214,178 浅暖白 —— 旧「极差<45」的
+    白格 = 高亮团块 mn>140、area 120~900、bbox 24~56、近方形(0.6~2.6)。
+    实测: 小格 33x30/330px(均值 BGR≈239,214,178 浅暖白 —— 旧「极差<45」的
     纯白判据把它卡掉了, 浅黄极差 61); 绿格(64x90)另一套 qa._green_tiles。
+
+    ⚠ 2026-10-16 放宽 area 下限 250→120、bbox 上限 48→56(用户反馈
+      「第四行就是 S 白装啊, 为什么不升」+ 战机页签截图实测):
+      白材料格还有**大字牌**一种 —— 实测 bbox 51x51、亮像素 area 仅 146~217
+      (牌面大面积是深色底, mn>140 的只是亮缘/数字), 旧下限 250 直接把它排除,
+      于是「白品质 S 装」整行白丢。新参数下三张页签截图的全部候选均值仍是
+      175~248 浅暖白(无误报), 覆盖 51x51 大字牌与小字牌两种。
     """
     x0, y0, w, h = _bot.ref_rect_to_client(*LIST_AREA, sc.w, sc.h)
     roi = (sc.grab() if img is None else img)[y0:y0 + h, x0:x0 + w]
@@ -83,7 +90,7 @@ def white_tiles(sc: kit.Screen, img) -> list[int]:
     for j in range(1, n):
         a = int(st[j, cv2.CC_STAT_AREA])
         bw, bh = int(st[j, cv2.CC_STAT_WIDTH]), int(st[j, cv2.CC_STAT_HEIGHT])
-        if not (250 <= a <= 800 and 24 <= bw <= 48 and 24 <= bh <= 48):
+        if not (120 <= a <= 900 and 24 <= bw <= 56 and 24 <= bh <= 56):
             continue
         if not 0.6 <= bw / max(1, bh) <= 2.6:
             continue
