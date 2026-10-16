@@ -45,6 +45,17 @@ S_AREA_MIN = 120
 S_FILL_MIN = 0.62
 S_BBOX_MAX = qa.S_BBOX_MAX   # 徽标紧实: bbox 边长上限(沿 qa 标定 32)
 LIST_AREA = qa.LIST_AREA
+LIST_STILL_DIFF = 2.0    # 列表区「上滑后画面没动」的像素均差阈值(0~255)
+                         #   滚动成功时整屏位移 → 均差 >>20; 已到底时拖拽无位移 → ≈0
+                         #   → 2.0 余量很大, 不需要精细标定
+SCROLL_STILL_MAX = 3     # 连续这么多次上滑画面都没动 → 判定到底收工
+                         #   ⚠ 2026-10-16 用户反馈「不是说改成 3~4 次滑动吗」：
+                         #   本用例原先只抄了 qa 的「位置未变」到底判据，但它依赖 S 行检测
+                         #   → 列表里 S 行「有徽标但无绿/白材料格」时 s_rows 返回空,
+                         #   `if cur` 永不成立 → 一路滑满 SCROLL_MAX(11 次)。
+                         #   实跑证据 logs/sadv_20261016-122648.log: 4 个页签共空滑 44 次。
+                         #   现补上帧差(不依赖任何目标检测) + qa 的「无产出」两条兜底
+                         #   → 到底后最多再滑 3~4 次就收工。
 ROW_ICON_X = qa.ROW_ICON_X
 
 
@@ -277,21 +288,55 @@ def refine_row_s(sc: kit.Screen) -> int:
     return done
 
 
+def _list_roi(sc: kit.Screen, img) -> np.ndarray:
+    """列表区像素(供帧差到底判据), 与 s_rows 用同一 ROI。"""
+    x0, y0, w, h = _bot.ref_rect_to_client(*LIST_AREA, sc.w, sc.h)
+    return img[y0:y0 + h, x0:x0 + w].astype(np.int16)
+
+
 def pick_s_row(sc: kit.Screen, visited: list[np.ndarray]) -> int | None:
-    """找「带 S 徽标且没访问过」的行; 视口内没有就上滑再找(到底检测同 qa)。"""
+    """找「带 S 徽标且没访问过」的行; 视口内没有就上滑再找。
+
+    到底检测有**三条**互不排斥的判据(任一命中即收工, 2026-10-16 补齐):
+      ① 位置判据: 上滑后 S 行位置纹丝不动 → 到底(依赖 S 行检测, 命中最早);
+      ② 帧差判据: 连续 SCROLL_STILL_MAX 次上滑后列表区画面几乎无变化 → 到底
+                  (不依赖任何目标检测);
+      ③ 无产出: 连续 qa.DRY_SCROLL_GIVEUP 次滑屏都没出现可处理的新行 → 到底
+                (与 qa.pick_row 同语义, 保证两用例行为一致)。
+    ⚠ 只写 ① 会被短路: 列表里 S 行全是「有徽标但无绿/白材料格」时 s_rows 返回
+      **空列表** → `if cur` 永不成立 → prev_ys 一直 None → 一路滑满 SCROLL_MAX=11 次
+      (用户实跑 logs/sadv_20261016-122648.log: 4 个页签共空滑 44 次, 多花 ~2 分钟)。
+    """
     prev_ys: list[int] | None = None
+    prev_roi: np.ndarray | None = None
+    still = 0                                # 连续「画面没动」的滑屏次数
+    dry = 0                                  # 连续「没有可处理新行」的滑屏次数
     for s in range(qa.SCROLL_MAX + 1):
         img = sc.grab()
-        ys = [y for y in s_rows(sc, img)
+        cur = s_rows(sc, img)                # 本屏可处理的 S 行(不可处理的已在内部打日志)
+        ys = [y for y in cur
               if not any(qa.same_row(qa.row_sig(sc, y), v) for v in visited)]
         if ys:
             return ys[0]
-        cur = s_rows(sc, img)
+        if s >= qa.SCROLL_MAX:
+            break                            # 预算用完, 别再滚了
+        roi = _list_roi(sc, img)
         if cur and prev_ys and all(abs(a - b) <= 8 for a, b in zip(cur, prev_ys)):
-            log("上滑后 S 行位置未变 → 列表已到底, 提前收工")
+            log("① 上滑后 S 行位置未变 → 列表已到底, 提前收工")
             return None
         if cur:
             prev_ys = cur
+        moved = (prev_roi is not None and roi.shape == prev_roi.shape
+                 and float(np.abs(roi - prev_roi).mean()) >= LIST_STILL_DIFF)
+        still = 0 if moved else still + 1
+        prev_roi = roi
+        if still >= SCROLL_STILL_MAX:
+            log(f"② 连续 {still} 次上滑画面未动 → 列表已到底, 收工")
+            return None
+        dry += 1
+        if dry >= qa.DRY_SCROLL_GIVEUP:
+            log(f"③ 连续 {dry} 次滑屏没有可处理的新行 → 判定到底, 收工")
+            return None
         log(f"视口内没有可处理的 S 行 → 上滑第 {s + 1} 次")
         qa._scroll(sc)
     return None
