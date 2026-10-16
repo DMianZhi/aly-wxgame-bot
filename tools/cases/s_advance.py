@@ -66,37 +66,38 @@ SCROLL_STILL_MAX = 3     # 连续这么多次上滑画面都没动 → 判定到
 ROW_ICON_X = qa.ROW_ICON_X
 
 
-def white_tiles(sc: kit.Screen, img) -> list[int]:
-    """列表页「白色(白品质)材料格」的行 y(2026-10-12 标定, 2026-10-16 放宽)。
+WHT_TILE_X = (225, 294, 362, 431)   # 列表页四材料格中心 x(基准坐标)
+WHT_PILL_DY = (26, 42)              # 数字牌相对**行中心**的纵向带(客户区像素)
+WHT_PILL_HW = 24                    # 数字牌半宽(客户区像素)
+ROW_YC = 30                         # 行中心 y ≈ S 徐标 y + 30(两页签真帧实测)
 
-    白格 = 高亮团块 mn>140、area 120~900、bbox 24~56、近方形(0.6~2.6)。
-    实测: 小格 33x30/330px(均值 BGR≈239,214,178 浅暖白 —— 旧「极差<45」的
-    纯白判据把它卡掉了, 浅黄极差 61); 绿格(64x90)另一套 qa._green_tiles。
 
-    ⚠ 2026-10-16 放宽 area 下限 250→120、bbox 上限 48→56(用户反馈
-      「第四行就是 S 白装啊, 为什么不升」+ 战机页签截图实测):
-      白材料格还有**大字牌**一种 —— 实测 bbox 51x51、亮像素 area 仅 146~217
-      (牌面大面积是深色底, mn>140 的只是亮缘/数字), 旧下限 250 直接把它排除,
-      于是「白品质 S 装」整行白丢。新参数下三张页签截图的全部候选均值仍是
-      175~248 浅暖白(无误报), 覆盖 51x51 大字牌与小字牌两种。
+def row_white_cols(sc: kit.Screen, img, cy: int) -> list[int]:
+    """列表页第 cy 行(行中心 y, 客户区)里**白品质材料格**的列号。
+
+    ⚠ 2026-10-16 用户纠正「在列表又误点没有白绿装的 S 行」—— 旧判据扫**整格图面**
+      找灰白像素, 但蓝/紫品质格的**装备图标**里也有大片银白高光（真帧: 装甲行2 的
+      图标高光团块 24x34/31x42），于是「蓝框蓝牌」的格子被误判成白装
+      → 白点一次详情页（用户: 白点一次很浪费）。
+      现在只认**数字牌底色**（实心色块，直接标品质，与 qa.tile_green 同思路）:
+        真白装（战机行4）数字牌 = 灰阶 0.90 / 蓝 0.07;
+        蓝品质（装甲行2）数字牌 = 灰阶 0.08 / 蓝 0.84 → 判据分得极开。
+      四格中心 x 与牌位实测自用户页签真帧。
     """
-    x0, y0, w, h = _bot.ref_rect_to_client(*LIST_AREA, sc.w, sc.h)
-    roi = (sc.grab() if img is None else img)[y0:y0 + h, x0:x0 + w]
-    if roi.size == 0:
-        return []
-    b, g, r = roi[..., 0].astype(int), roi[..., 1].astype(int), roi[..., 2].astype(int)
-    mn = np.minimum(np.minimum(b, g), r)
-    m = (mn > 140).astype(np.uint8)
-    n, _lab, st, ce = cv2.connectedComponentsWithStats(m, 8)
+    im = sc.grab() if img is None else img
     out = []
-    for j in range(1, n):
-        a = int(st[j, cv2.CC_STAT_AREA])
-        bw, bh = int(st[j, cv2.CC_STAT_WIDTH]), int(st[j, cv2.CC_STAT_HEIGHT])
-        if not (120 <= a <= 900 and 24 <= bw <= 56 and 24 <= bh <= 56):
+    for i, cx in enumerate(WHT_TILE_X):
+        x0, _ = _bot.ref_to_client(cx, 0, sc.w, sc.h)
+        seg = im[cy + WHT_PILL_DY[0]:cy + WHT_PILL_DY[1],
+                 max(0, x0 - WHT_PILL_HW):x0 + WHT_PILL_HW].astype(int)
+        if seg.size == 0:
             continue
-        if not 0.6 <= bw / max(1, bh) <= 2.6:
-            continue
-        out.append(int(ce[j][1]) + y0)
+        mn, mx = seg.min(axis=2), seg.max(axis=2)
+        b, r = seg[:, :, 0], seg[:, :, 2]
+        gray = float(((mx - mn) < 40).mean())
+        blue = float((b - r > 50).mean())
+        if gray >= 0.5 and blue < 0.35:
+            out.append(i)
     return out
 
 
@@ -105,7 +106,9 @@ def s_rows(sc: kit.Screen, img) -> list[int]:
 
     双条件(2026-10-12 用户反馈: 别点进详情才发现没料, 列表页就要预筛):
       ① 该行有 S 徽标(橙色团块直扫, 不依赖绿格 —— 白品质 S 装没有绿格);
-      ② 该行有绿格(qa._green_tiles)或白格(white_tiles) —— 行 ±25px 内。
+      ② 该行有绿格(qa._green_tiles)或白品质材料格(row_white_cols) —— 行内。
+    白品质只认**数字牌底色**（不扫图面：图面的银白高光会把蓝品质格误判成白装,
+    见 row_white_cols 的注释）。
     只有徽标没有绿/白材料的 S 行直接跳过, 不浪费详情页那套步骤。
 
     ⚠ 2026-10-16 两处修正(用户实跑 logs/sadv_20261016-131442.log + 3 张页签截图):
@@ -133,7 +136,6 @@ def s_rows(sc: kit.Screen, img) -> list[int]:
         if a / max(1, bw * bh) >= S_FILL_MIN:
             badges.append(int(ce[j][1]) + y0)
     greens = [cy for cy, _ in qa._green_tiles(sc, img)]
-    whites = white_tiles(sc, img)
     ys = []
     for by in badges:
         # ⚠ 参照系: 徽标悬浮在材料格**顶沿**(格 90 高), 绿簇中心 y ≈ 徽标 y + 45;
@@ -144,10 +146,10 @@ def s_rows(sc: kit.Screen, img) -> list[int]:
             d = abs((by + 45) - gy)
             if d <= 45:
                 cand.append((d, gy))
-        for wy in whites:
-            d = abs((by + 20) - wy)
-            if d <= 30:
-                cand.append((d, wy))
+        # 白品质: 按行采样**数字牌底色**（不看图面 —— 图面银白高光会误报, 见 row_white_cols）
+        cy = by + ROW_YC
+        if row_white_cols(sc, img, cy):
+            cand.append((0, cy))
         if cand:
             ys.append(min(cand)[1])       # 行中心 y ≈ 最近材料格中心(供点主图)
         else:
