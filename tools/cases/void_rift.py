@@ -37,13 +37,14 @@ import cv2  # noqa: F401  (订单弹窗兜底检测的灰度用)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from wb import bot  # noqa: E402
 from wb import kit  # noqa: E402
 from wb.kit import log  # noqa: E402
 
 TH = 0.86
 TH_FREE = 0.90          # 免费钮: 与相邻 500💎 同款黄底 → 抬高
 TH_BACK = 0.90
-FREE_XY = (225, 811)    # 免费钮的**固定槽位**(左上卡)—— 位置锚定的最后防线, 见 find_free()
+FREE_XY = (244, 813)     # 免费钮**固定槽位**(左上卡, 基准坐标; 739x1383 实帧经 client_to_ref 回算量得)
 FREE_TOL = 25           # 槽位容差(px)
 ENTRY_TPL = "vk_entry"          # 关卡页右列「虚空裂隙」卡
 SHOP_TPL = "vk_workshop"        # 虚空裂隙页底部「秘钥工坊」
@@ -66,13 +67,23 @@ BACK_SLOT = _ref(727, 1448)   # 三页「返回」钮的固定槽位(工坊页�
 
 
 def find_free(sc: kit.Screen):
-    """找**真正**的免费钮: 分数≥TH_FREE 且位置在固定槽位 FREE_XY±25px。其余一律不算。"""
+    """找**真正**的免费钮: 阈值≥TH_FREE 且**换算到基准口径后**落在 FREE_XY±FREE_TOL。
+
+    ⚠ 2026-10-15 修(用户反馈"明明有免费按钮"): 旧版直接拿 `sc.find` 的返回比 `FREE_XY`,
+       但二者**坐标系不同** —— `find` 返回**客户区坐标**(739x1383 窗口下实测 (208,743)),
+       而 FREE_XY 是**基准坐标**(845x1521 口径), y 相差 68px → 明明认得到免费钮
+       (score 0.979)也被判"不在槽位" → 拒绝点击、空手收工。
+       修法: 用 bot.client_to_ref 把命中点归一到基准后再比。
+    ⚠ 不用"按槽位取 ROI 再匹配"(试过, 不行): match_adaptive 的自适应缩放依赖
+       **整帧尺寸**, 喂子图会失效 —— 同一帧上裸 cv2 0.659 而整帧 match_adaptive 0.979。
+    """
     h = sc.find(FREE_TPL, TH_FREE)
     if h is None:
         return None
-    if abs(h[0] - FREE_XY[0]) > FREE_TOL or abs(h[1] - FREE_XY[1]) > FREE_TOL:
-        log(f"⚠ vk_free 命中 {h[:2]} (score={h[2]:.3f}) 但**不在免费槽位** {FREE_XY}±{FREE_TOL} "
-            f"→ 判为同名黄底付费钮, 拒绝点击")
+    bx, by = bot.client_to_ref(h[0], h[1], sc.w, sc.h)
+    if abs(bx - FREE_XY[0]) > FREE_TOL or abs(by - FREE_XY[1]) > FREE_TOL:
+        log(f"⚠ {FREE_TPL} 命中 {h[:2]} (score={h[2]:.3f}) → 基准 ({bx},{by}) "
+            f"不在免费槽位 {FREE_XY}±{FREE_TOL} → 判为同名黄底付费钮, 拒绝点击")
         return None
     return h
 
