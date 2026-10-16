@@ -8,8 +8,10 @@
      牌面大部是深色底，mn>140 命中的只是亮缘/数字 → 被旧的 area>=250 + bbox<=48
      双重排除 → **白品质 S 装整行白丢**（用户原话：「第四行就是 S 白装啊」）。
   ③ s_rows 返回**徽标 y** 而非行中心 y（徽标在行顶，拿去点主图偏上 ~24px）。
+ ④ 详情页「白材料槽」判据的取样带落在格子外（tile_rect 的格子实测在**上方 ~23px**）
+    → 有白材料的槽也算 0.05 → 进了详情页立刻「本行已无绿/白材料 → 收手」。
 
-夹具 = 2026-10-16 实跑时用户提供的 3 张页签真帧（存 shots/，不入库）；
+夹具 = 2026-10-16 实跑时用户提供的 3 张页签真帧 + 1 张详情页真帧（存 shots/，不入库）；
 缺夹具时本自检整体 SKIP（沿用 selftest_kit 的约定）。
 """
 from __future__ import annotations
@@ -41,6 +43,14 @@ def _case(expect: list[int], label: str):
     return fn
 
 
+def _case_detail(rp):
+    """详情页材料槽判据(2026-10-16 用户实跑: 旧「数字牌中段 pill」取样带落在格子外
+    → 有白材料的槽也全判无材料 → 刚进详情页就收手)。"""
+    img = rp.imgs[0]
+    g, w = sa.quality_cols(_Sc(img), img)
+    return (g, w) == ([], [0]), f"详情页 quality_cols=(绿{g}, 白{w}) 期望=(绿[], 白[0])"
+
+
 TABS = [
     ("战机", "_sadv_user_tab_zhanji.png", [752],
      "仅第 4 行(白材料大字牌) —— 修复前返回 []"),
@@ -51,6 +61,7 @@ TABS = [
 ]
 
 if __name__ == "__main__":
-    st.run_one("s_advance 离线自检（列表页预筛判据，零消耗）",
+    st.run_one("s_advance 离线自检（列表页预筛 + 详情页判料，零消耗）",
                [(f"页签「{lb}」{note}", [fr], _case(ex, lb))
-                for lb, fr, ex, note in TABS])
+                for lb, fr, ex, note in TABS]
+               + [("详情页第 1 槽白材料判识", ["_sadv_user_detail.png"], _case_detail)])

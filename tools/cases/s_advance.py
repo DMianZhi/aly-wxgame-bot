@@ -50,6 +50,8 @@ LIST_AREA = qa.LIST_AREA
 #   → 拿 LIST_AREA 扫徽标永远扫不到, 只会把材料格里的橙色误当徽标。
 #   基准 x 25~160 ↔ 客户区 x 21~144(739 宽帧): 含徽标 41~73、不含材料格 174+。
 BADGE_AREA = _bot.measured_rect(25, 262, 135, 940, qa.REF)
+WHITE_MIN = 0.08          # 详情页白材料槽: 整格「灰白像素占比」下限
+                          # 真帧标定(2026-10-16 用户详情页截图): 白槽 0.153 / 三个空槽 0.000
 LIST_STILL_DIFF = 2.0    # 列表区「上滑后画面没动」的像素均差阈值(0~255)
                          #   滚动成功时整屏位移 → 均差 >>20; 已到底时拖拽无位移 → ≈0
                          #   → 2.0 余量很大, 不需要精细标定
@@ -160,7 +162,8 @@ def quality_cols(sc: kit.Screen, img) -> tuple[list[int], list[int]]:
       ① 必须在展开**前**判 —— 展开后数字牌位置漂移, pill 取样区全取空(绿分 0.000);
       ② 不排除 S 角标格 —— 本用例 S 装就是主角(qa 的语义「S 不当材料」会全跳,
          实测 S 装面板绿槽 tile_green=0.403, 远超 GREEN_MIN=0.15);
-      ③ 白槽判据 = 数字牌中段三通道高且接近(白底), 阈值待白装真帧标定。
+      ③ 白槽判据 = **整格**「灰白像素占比」>= WHITE_MIN(2026-10-16 真帧标定;
+         旧「数字牌中段 pill」取样带落在格子外 → 有白材料的槽也全判「无材料」)。
     """
     gcols = [i for i in range(4) if qa.tile_green(sc, i, img) >= qa.GREEN_MIN]
     wcols = white_cols(sc, img)
@@ -168,9 +171,16 @@ def quality_cols(sc: kit.Screen, img) -> tuple[list[int], list[int]]:
 
 
 def white_cols(sc: kit.Screen, img) -> list[int]:
-    """数量面板里「白色品质」的槽列(品质数字牌中段判白)。
+    """详情页**默认态**「白色品质」材料槽列 —— **整格**判: 灰白像素(mn>140 且极差<60)占比
+    达 WHITE_MIN。
 
-    与 qa.green_cols 同一取样区(数字牌中段), 判据换成白: 三通道都高且接近。
+    ⚠ 2026-10-16 用户实跑暴露(日志 sadv_20261016-133320.log 13:33:51 段):
+      旧判据取「数字牌中段 pill = t[h-16:h-2, 18:74]」+ mn>150 & 极差<45 & frac>=0.5,
+      但 tile_rect 的格子实测在**上方 ~23px**(真帧: 格子客户区 y 523~597, 而 rect 是
+      546~625) → pill 整条带落在**格子外的深色底**上 → 真有白材料的 col0 只算出 0.05,
+      一路判「无绿/白材料」→ 刚进详情页就「收手」→ 白品质 S 装永远升不了。
+      现改**整格**判 + 放宽到 mn>140/极差<60。真帧标定(详情页截图):
+        白材料槽 col0 = 0.153; 三个空槽 = 0.000 / 0.000 / 0.000 → 阈值 0.08 余量充分。
     """
     out = []
     for col in range(4):
@@ -178,14 +188,10 @@ def white_cols(sc: kit.Screen, img) -> list[int]:
         t = (sc.grab() if img is None else img)[y0:y0 + h, x0:x0 + w]
         if t.size == 0:
             continue
-        pill = t[h - 16:h - 2, 18:74]
-        if pill.size == 0:
-            continue
-        r, g, b = (pill[:, :, i].astype(int) for i in (2, 1, 0))
-        mn = np.minimum(np.minimum(r, g), b)
-        mx = np.maximum(np.maximum(r, g), b)
-        frac = float(((mn > 150) & (mx - mn < 45)).mean())
-        if frac >= 0.5:
+        mn = np.min(t.astype(int), axis=2)
+        mx = np.max(t.astype(int), axis=2)
+        frac = float(((mn > 140) & (mx - mn < 60)).mean())
+        if frac >= WHITE_MIN:
             out.append(col)
     return out
 
@@ -256,6 +262,8 @@ def refine_row_s(sc: kit.Screen) -> int:
         gcols, wcols = quality_cols(sc, img)
         if not gcols and not wcols:
             log("本行已无绿/白材料 → 收手")
+            # 留证(2026-10-16): 用户反馈过「列表页判有料 / 进详情却判无料」，存帧好下次对账
+            sc.shot("nomaterial_detail")
             return done
         if not qa._tap(sc, "qa_adj", "调整数量", th=qa.TH_ADJ):
             return -1
