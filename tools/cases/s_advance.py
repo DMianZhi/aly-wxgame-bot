@@ -114,8 +114,9 @@ def s_rows(sc: kit.Screen, img) -> list[int]:
       ② 返回值改为**行中心 y**(匹配到的材料格中心 y), 不再是徽标 y —— 徽标在行顶,
          直接拿去点主图会偏上 ~24px(客户区), 是「点两次都进不了详情页」的一半原因。
     """
+    img = sc.grab() if img is None else img      # 归一化: 下面 qa._green_tiles 不接受 None
     x0, y0, w, h = _bot.ref_rect_to_client(*BADGE_AREA, sc.w, sc.h)
-    roi = (sc.grab() if img is None else img)[y0:y0 + h, x0:x0 + w]
+    roi = img[y0:y0 + h, x0:x0 + w]
     if roi.size == 0:
         return []
     r, g, b = (roi[:, :, i].astype(int) for i in (2, 1, 0))

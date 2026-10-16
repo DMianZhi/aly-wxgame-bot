@@ -128,7 +128,7 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 17 | 十年集结裁剪 | `uv run python tools/crop/crop_rally.py` | - | `-` | 首页活动卡 + 集结页 + 弹幕面板 |
 | 18 | 逐星补给裁剪 | `uv run python tools/crop/crop_star.py` | - | `-` | 长阶页入口/×5 装置(**必须裁可领态**: 已领后装置整个消失) + 补给面板领5次键/X；两源图分两次 run_crop，另做跨页核验(4 模板在闯关页/首页须 ≤0.86) |
 
-### 测试/自检（`tools/selftest/`，27 个）
+### 测试/自检（`tools/selftest/`，28 个）
 
 | # | 用途 | 脚本 | 每日额度 | 开关 | 要点 |
 |---|---|---|---|---|---|
@@ -155,10 +155,11 @@ uv run python tools/cases/void_rift.py --json 2>/dev/null # 只要结果，丢�
 | 21 | 活跃度奖励离线自检 | `uv run python tools/selftest/claim_activity_selftest.py` | - | `--dry` | 4 用例（2 张 812x1518 真帧）：入口定位(act_entry 187,225) ＋一键领取定位(act_claim 665,1311) ＋dry ＋锁 |
 | 22 | 奖励领取离线自检 | `uv run python tools/selftest/claim_reward_selftest.py` | - | `--dry` | 6 用例（3 张 812x1518 真帧：首页/奖励面板6行全橙/领后全灰）：入口定位 ＋可领检测(find_all=6 行, 首行 700,386) ＋领后不可再命中 ＋无可领路径(留证收工不算失败) ＋dry ＋锁 |
 | 23 | 陨石陷阱闪击离线自检 | `uv run python tools/selftest/meteor_trap_selftest.py` | - | `--dry` | 6 用例（2 张 812x1518 真帧：活动关卡页全页 + 闪击对话框[只开未确认零消耗拍的]）：判层(对话框先于活动页) ＋闪击键锚点落点(564,588) ＋极难页签**预测点点击**(卡1页签默认非选中态, 共享选中模板仅 0.867) ＋跨卡不串台(vs 卡2/卡3 ≤0.14) ＋dry ＋锁 |
-| 24 | --json 契约离线自检 | `uv run python tools/selftest/json_contract_selftest.py` | - | `--dry` | 5 用例（真起子进程 + 分离两条管道，唯一能测到「stdout 干净」的办法）：--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) ＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) ＋人类模式 stdout **完全为空**(日志已全让给 stderr) |
-| 25 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 8 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 23 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) ＋多选勾选渲染(✔) ＋批量汇总面板三态 ＋**批量顺序执行** dry(依序 2/2)；2026-10-11: 菜单换 msvcrt 按键循环 (↑↓移动/空格勾选/a全选/Enter执行勾选/A全选)；2026-10-12: Live 原位重写修闪烁(仅按键后刷新) ＋**维护工具第二段**(背包清理等 9 个进列表) |
-| 26 | 兑换码离线自检 | `uv run python tools/selftest/redeem_code_selftest.py` | - | `--dry` | 9 用例（6 张 826x1503 真帧：兑换码弹窗/输入文字弹窗/恭喜获得/无效兑换码/无法重复/首页）：成功路径(输入框→完成→兑换→领取) ＋失败文案①(「无效兑换码」→确认) ＋失败文案②(「无法重复使用同一个兑换码」→确认) ＋残层清理(开局带残留弹层→先清再走) ＋多码连跑不中断(成功/失败/成功, 计数 2) ＋收尾顺序(弹窗X→面板X) ＋dry 零点击零写盘 ＋解析(剪贴板原文带「兑换码」标记 / --codes 直传纯列表 / 去重) ＋并发锁；⚠ 打字+切输入法为真实副作用 → 自检全部打桩(stub clear_text/type_text/ime_english)；⚠ 弹层是半透明遮罩，底下 stage_btn 照样命中(0.971 vs 0.996) → 不能用它判已回首页 |
-| 27 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
+| 24 | S装升蓝离线自检 | `uv run python tools/selftest/s_advance_selftest.py` | - | `--dry` | 3 用例（3 张页签真帧，用户 2026-10-16 实跑现场）：“战机仅第 4 行白装 / 副武器 4 行 / 僚机 3 行”—— 旬住同日暴露的三处判据 bug：① S 徐标扫描区曾错用材料格列（基准 x180）→ 打不到贴在主图格左上角（x≈65）的徐标，日志里“y=275 无绿/白材料格”只是材料格橙色的假阳性；② 白材料格“大字牌”（51x51、area≈151）被 area>=250 + bbox<=48 双重排除 → 白品质 S 装整行白丢；③ s_rows 返回徐标 y 而非行中心 y（点主图偏上 ~24px，副武器页签曾“点两次都进不了详情页”） |
+| 25 | --json 契约离线自检 | `uv run python tools/selftest/json_contract_selftest.py` | - | `--dry` | 5 用例（真起子进程 + 分离两条管道，唯一能测到「stdout 干净」的办法）：--json 恰好一行/字段齐全/shots 自动登记/steps 前缀派生(⚠→ok=False) ＋--dry 正交(零留证) ＋失败路径也出 JSON(无窗口 code=2 / 锁冲突 code=3) ＋人类模式 stdout **完全为空**(日志已全让给 stderr) |
+| 26 | wbtui 外壳离线自检 | `uv run python tools/selftest/wbtui_selftest.py` | - | `--dry` | 8 用例（render 用 Console(record=True) 快照，零 TTY；运行层用假用例脚本）：用例表 23 行全渲染 ＋结果面板成/败/降级三态 ＋日志面板只留尾部 N 行 ＋--json stdout 解析容错(有噪声仍取到那行) ＋**端到端**跑假用例(实时收 stderr 日志＋解析结果 dict＋退出码) ＋多选勾选渲染(✔) ＋批量汇总面板三态 ＋**批量顺序执行** dry(依序 2/2)；2026-10-11: 菜单换 msvcrt 按键循环 (↑↓移动/空格勾选/a全选/Enter执行勾选/A全选)；2026-10-12: Live 原位重写修闪烁(仅按键后刷新) ＋**维护工具第二段**(背包清理等 9 个进列表) |
+| 27 | 兑换码离线自检 | `uv run python tools/selftest/redeem_code_selftest.py` | - | `--dry` | 9 用例（6 张 826x1503 真帧：兑换码弹窗/输入文字弹窗/恭喜获得/无效兑换码/无法重复/首页）：成功路径(输入框→完成→兑换→领取) ＋失败文案①(「无效兑换码」→确认) ＋失败文案②(「无法重复使用同一个兑换码」→确认) ＋残层清理(开局带残留弹层→先清再走) ＋多码连跑不中断(成功/失败/成功, 计数 2) ＋收尾顺序(弹窗X→面板X) ＋dry 零点击零写盘 ＋解析(剪贴板原文带「兑换码」标记 / --codes 直传纯列表 / 去重) ＋并发锁；⚠ 打字+切输入法为真实副作用 → 自检全部打桩(stub clear_text/type_text/ime_english)；⚠ 弹层是半透明遮罩，底下 stage_btn 照样命中(0.971 vs 0.996) → 不能用它判已回首页 |
+| 28 | 冒烟测试 | `uv run python tools/selftest/smoke.py` | - | `-` | 配置/合成匹配/窗口枚举/点击 dry-run/注册表与脚本一致性 |
 
 ### 维护工具（`tools/maint/`，9 个）
 
@@ -466,13 +467,13 @@ wbtui/             交互外壳：rich 菜单式 TUI（uv run python -m wbtui）
 config.toml        阈值、拟人点击参数、窗口裁边
 wb/cfg.py          配置加载（路径/阈值/点击参数的唯一来源）
 wb/bot.py          窗口定位、截屏、模板匹配、拟人点击
-wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁 / 广告流 / 回首页 / 看门狗）；--json 结构化结果契约（stdout 一行 JSON，日志走 stderr）；每次跑**自动落盘** `logs/<前缀>_<时间戳>.log`（stderr 全文副本，自检不落盘、本就忽略入库）
+wb/kit.py          用例运行时脚手架（Screen / 统一 CLI / 单实例锁 / 广告流 / 回首页 / 看门狗）；--json 结构化结果契约（stdout 一行 JSON，日志走 stderr）
 wb/registry.py     用例注册表（清单单一事实源：smoke 校验与 README 清单都读它）
 wb/selftest_kit.py 离线回放脚手架（实测帧 + 点击驱动状态机，零消耗验证分支）
 wb/croplab.py      模板裁剪/校验共享库（先校验后落盘）
 tools/cases/       28 个每日用例: free_stamina, free_sweep, free_gift, free_explore, redeem_code, sweep_stage, boss_mode, boss_hyper, void_rift, meteor_trap, laser_maze, missile_hunt, free_treasure, free_turn, free_star, free_rally, guild_donate, guild_boss, clear_stamina, clear_bag, quick_advance, friend_stamina, s_advance, star_supply, endless_world, claim_activity, claim_reward, community_reward
 tools/crop/        18 个模板裁剪工具: crop_quickadv, crop_sadv, crop_adgiveup, crop_rdhome, crop_home, crop_stage, crop_boss, crop_boss_flash, crop_hyper, crop_hyper125, crop_rift, crop_treasure, crop_turn, crop_exchange, crop_guild, crop_guildboss, crop_rally, crop_star
-tools/selftest/    27 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, ad_text_selftest, ad_close_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, clear_stamina_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, json_contract_selftest, wbtui_selftest, redeem_code_selftest, smoke
+tools/selftest/    28 个测试: free_turn_selftest, free_star_selftest, free_treasure_selftest, ad_text_selftest, ad_close_selftest, free_stamina_selftest, free_rally_selftest, boss_hyper_selftest, boss_mode_selftest, guild_donate_selftest, quick_advance_selftest, guild_boss_selftest, sweep_stage_selftest, clear_stamina_selftest, endless_world_selftest, friend_stamina_selftest, star_supply_selftest, geom_selftest, missile_hunt_selftest, void_rift_selftest, claim_activity_selftest, claim_reward_selftest, meteor_trap_selftest, s_advance_selftest, json_contract_selftest, wbtui_selftest, redeem_code_selftest, smoke
 tools/maint/       9 个维护工具: capture_fixtures, live_check, battle_watch, close_popup, probe_live, docs, build_digits, build_bscore_digits, build_mcount_digits
 templates/         按钮模板图（257 张，由 crop_* 用例与运行期裁剪产出）
 shots/             截图：snap_* 校准源、*_selftest 判层夹具、montage 预览、坐标 CSV
