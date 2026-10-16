@@ -478,7 +478,33 @@ HOME_NAV = "nav_home"       # 「回首页」直达键（寻宝 hub 等页没有
 # 子页返回键同款兄弟(2026-10-11 补): 仓库/装备系页面**没有** ral_back/nav_home,
 # 只有自己那款返回键 —— quick_advance 收尾因此被留在背包页, 连累下一个用例
 # (friend_stamina 起点错乱)。goto_home 的后续候选。
-BACK_KEY_MORE = ("eq_back", "wc_res_back")
+BACK_KEY_MORE = ("eq_back", "wc_res_back", "vk_back")
+# ⚠ 2026-10-15: 补 vk_back(秘钥工坊/虚空裂隙链) —— 这些子页**有自己的**返回键,
+#   ral_back/nav_home 都不命中 → goto_home 无键可点 → 「找不到返回键, 停手」
+#   → 游戏被留在该页 → **后续所有用例连坐**(用户反馈"一个用例又把后续的全部卡了")。
+
+
+def _page_sig(sc: Screen):
+    """页面粗指纹(仅用于判断"有没有换页", 不追求精确)。
+
+    ⚠ 用途: goto_home 的 stuck 判定。旧版"点过 BACK_KEY 但没回首页"就算 stuck,
+       但**逐层返回**(秘钥工坊→虚空裂隙→关卡页→首页)中间每一层都"没到首页",
+       于是第一次点击后就被判假阳性、后面只用 nav_home —— 而那些子页 nav_home
+       不生效 → 死循环 5 次、白耗 40s 后停手。(2026-10-15 用户日志实测)
+    """
+    img = sc.grab()
+    if img is None or img.size == 0:
+        return None
+    h, w = img.shape[:2]
+    step_y, step_x = max(1, h // 24), max(1, w // 24)
+    return img[::step_y, ::step_x].astype("float32").mean(axis=(0, 1))
+
+
+def _sig_changed(a, b, tol: float = 6.0) -> bool:
+    """两个页面指纹是否明显不同(阈值经验值: 同页噪声 <2, 换页 >15)。"""
+    if a is None or b is None:
+        return False
+    return float(abs(a - b).max()) > tol
 
 
 def is_home(sc: Screen) -> bool:
@@ -516,7 +542,8 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
     没有真返回键, ral_back 在 (728,1439) 假命中 0.967 实际是页签栏(free_treasure
     收尾连点 5 次全在切页签, 死活出不去; nav_home (86,216) 0.980 才是正路)。
     """
-    stuck = False     # BACK_KEY 点过但没回首页(命中可能是当前页的假阳性)
+    stuck = False     # 上层键点过但**页面毫无变化**(命中可能是当前页的假阳性)
+    last_sig = None   # 上次点击**前**的页面指纹(用于判断这次点击是否真起作用)
     for i in range(tries):
         if is_home(sc):
             if i:
@@ -534,20 +561,28 @@ def goto_home(sc: Screen, *, tries: int = 5, wait: float = 1.2) -> bool:
         if sc.dry:
             log(f"[dry] 会点 返回键({BACK_KEY}) 回首页")
             return True
-        back = None if stuck else sc.find(BACK_KEY)
-        if back is None:
-            back = sc.find(HOME_NAV, 0.90)
-        if back is None:
-            for alt in BACK_KEY_MORE:       # 仓库/装备系子页只有自己的返回键
-                back = sc.find(alt)
-                if back is not None:
-                    break
+        # ⚠ 关键(2026-10-15): 只要**页面变了**就说明上一下点击有效 ——
+        #   逐层返回时中间每一层都"不在首页", 不能因此判成假阳性而弃用 BACK_KEY。
+        sig = _page_sig(sc)
+        if _sig_changed(last_sig, sig):
+            stuck = False
+        # ⚠ 性能: sc.find 每次都会**重新抓屏**, 旧版这里 5 个候选各抓一次 × 5 轮
+        #   = 25 次全图匹配 → 实测每个用例开头白耗 **50s**。改用 look 一次抓屏批量查。
+        cands = (HOME_NAV, *BACK_KEY_MORE) if stuck else (BACK_KEY, HOME_NAV, *BACK_KEY_MORE)
+        st = sc.look(*cands)
+        back = None
+        for nm in cands:          # 按优先级取第一个命中(BACK_KEY 优先)
+            if st.get(nm) is not None:
+                back = st[nm]
+                break
         if back is None:
             if i >= tries - 1:
+                sc.shot("goto_home_stuck")     # ⭐ 留证: 下次能看清到底卡在哪页
                 log("[warn] 找不到返回键，停手（请手动回首页）")
                 return False
             time.sleep(wait)
             continue
+        last_sig = sig       # 记住"点击前"的指纹
         sc.click(back, f"返回(第{i + 1}次)")
         stuck = True
         time.sleep(wait)
