@@ -516,7 +516,7 @@ def battle_watch(sc: kit.Screen) -> str:
     return 'finish'
 
 
-def settle(sc: kit.Screen, timeout: float = 180.0) -> tuple[bool, bool | None]:
+def settle(sc: kit.Screen, timeout: float | None = None) -> tuple[bool, bool | None]:
     """结算：本次得分页「继续」→ 战绩页（挑战胜利/失败）「返回」→ 世界竞赛页。
 
     返回 (是否结算完成, 是否胜利 | None)。
@@ -524,10 +524,23 @@ def settle(sc: kit.Screen, timeout: float = 180.0) -> tuple[bool, bool | None]:
     用 claim_btn（奖励中心那个）定位会两页都空转到超时。
     必须有胜负标题才算战绩页：wc_res_back（返回按钮）的素材被多页复用
     （实测在世界竞赛页/无尽页/战前准备页都能 0.98+ 命中），单凭它判页会误入。
+
+    ⚠ 2026-10-15 用户口径：**不要超时，要一直等** —— 无尽模式**不是固定时长**
+       （不是 4 分钟就结束），结算链路也可能拖很久（局内死亡动画→战绩页→得分页→
+       「领取」→「继续」→战绩页）。实测：局内 09:03 结束，等了 **166s** 才见到
+       「领取」，而旧 `timeout=180` 只剩 14s → 点完「继续」下一轮循环立即超时，
+       误报「等结算超时」（用户反馈就是这个）。
+       ⇒ 默认 `timeout=None` = **不设上限**，一直等到明确判定（战绩页 / 已回世界竞赛页）。
+       防呆：每 30s 打一次心跳日志（避免看着像卡死）+ 外层 run_case 的
+       `default_timeout=6000s` 兜底。
     """
     t0 = kit.now()
+    last_beat = t0
     win = None
-    while kit.now() - t0 < timeout:
+    while timeout is None or kit.now() - t0 < timeout:
+        if timeout is None and kit.now() - last_beat >= 30.0:
+            last_beat = kit.now()
+            log(f'  等结算中… 已 {kit.now() - t0:.0f}s（无尽非固定时长，不设上限）')
         w = sc.find('wc_res_win', TH_KEY)
         lose = sc.find('wc_res_lose', TH_KEY)
         if (w or lose) and sc.find('wc_res_back', TH_KEY):
