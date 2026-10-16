@@ -478,8 +478,9 @@ HOME_NAV = "nav_home"       # 「回首页」直达键（寻宝 hub 等页没有
 # 子页返回键同款兄弟(2026-10-11 补): 仓库/装备系页面**没有** ral_back/nav_home,
 # 只有自己那款返回键 —— quick_advance 收尾因此被留在背包页, 连累下一个用例
 # (friend_stamina 起点错乱)。goto_home 的后续候选。
-BACK_KEY_MORE = ("eq_back", "wc_res_back", "vk_back")
-# ⚠ 2026-10-15: 补 vk_back(秘钥工坊/虚空裂隙链) —— 这些子页**有自己的**返回键,
+BACK_KEY_MORE = ("eq_back", "wc_res_back", "vk_back", "cg_close", "gd_close")
+# ⚠ 2026-10-15: 补 vk_back(秘钥工坊/虚空裂隙链) / cg_close(社区奖励面板X) /
+#   gd_close(子页面板X) —— 这些子页/面板**有自己的**返回键或关闭键,
 #   ral_back/nav_home 都不命中 → goto_home 无键可点 → 「找不到返回键, 停手」
 #   → 游戏被留在该页 → **后续所有用例连坐**(用户反馈"一个用例又把后续的全部卡了")。
 

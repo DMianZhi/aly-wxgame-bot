@@ -30,7 +30,14 @@ TH_WX = 0.90              # 微信侧图标: 真字形自匹配 1.000 / 次高�
 TH_WB = 0.88              # 微信侧按钮/输入框（同原生尺度, 留出 hover 态余量）
 
 ENTRY = "community_gift"
-PANEL_MARK = "cg_mark"    # 面板标题「社区奖励」黄字（次高仅 0.728, 唯一性好）
+# 面板判据：**多元素任一命中**（标题黄字 / 「前往」/ 右上X）
+# ⚠ 2026-10-15 修（用户反馈 community_reward 失败）：面板**已改版** —— 旧模板 cg_mark
+#   裁的是「区奖励」三字（还裁偏），在真帧上裸匹配仅 0.55 → 单一判据认不出"面板已打开"
+#   → open_panel 白等 4.8s 就判 fail（而截图里面板明明开着）；紧接 goto_home 也不认这个
+#   面板 → 「找不到返回键，停手」→ 后面所有用例连坐。
+#   实测（739x1383 真帧）：cg_close(右上X) **0.979** / cg_go(前往) **0.972** —— 都是
+#   面板特有且高置信，比标题字稳定得多。
+PANEL_MARKS = ("cg_mark", "cg_go", "cg_close")
 PANEL_X = (764, 428)      # 面板右上 X（基准坐标）
 ROW_BTN = ((669, 1078), (669, 1209))   # 两行按钮槽位（基准）: 0=点赞 1=评论
 TAB_CIRCLE, TAB_DESK, TAB_MINI = (187, 1315), (366, 1315), (548, 1315)
@@ -69,9 +76,15 @@ def row_state(sc, i: int):
     return None
 
 
+def panel_open(sc) -> bool:
+    """面板是否已打开（见 PANEL_MARKS 注释：多元素任一命中，不赌单一标题模板）。"""
+    st = sc.look(*PANEL_MARKS, th=TH)
+    return any(st[m] is not None for m in PANEL_MARKS)
+
+
 def open_panel(sc) -> bool:
     """进「社区奖励」面板（已在面板则直接成功）。"""
-    if sc.find(PANEL_MARK, TH) is not None:
+    if panel_open(sc):
         return True
     if not kit.is_home(sc):
         kit.goto_home(sc)
@@ -89,7 +102,7 @@ def open_panel(sc) -> bool:
     sc.click(h, "社区奖励")
     for _ in range(4):
         kit.nap(1.2)
-        if sc.find(PANEL_MARK, TH) is not None:
+        if panel_open(sc):
             return True
     sc.shot("cr_panel_fail")
     return False
