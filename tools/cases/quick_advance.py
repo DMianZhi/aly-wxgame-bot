@@ -75,6 +75,11 @@ GREEN_MIN = 0.15         # 数字牌绿占比阈值(实测: 绿装格 37.9%/39.0
 LIST_GREEN_MIN = 60      # 列表页绿簇最小面积(预筛, 故意放宽)
 ROW_GAP = 150            # 同一行多个绿簇的 y 归并容差(行距~160, 行内绿簇散布≤~90)
 SCROLL_MAX = 10          # 单页签最多上滑几次(旧值 4 只够前 ~4 行 → 下面的行全看不到)
+DRY_SCROLL_GIVEUP = 4    # 连续这么多次滑屏都**没产出新行** → 判定到底收工
+                         # ⚠ 2026-10-15 用户反馈「连滑 11 次很浪费时间」：原有的「绿格位置未变」
+                         #   到底判据在**绿装稀疏(ys 为空)**时会被短路 → 一路滑满 SCROLL_MAX。
+                         #   该判据保留(更准), 本条是不依赖绿格的兜底; 一旦真的产出新行会
+                         #   在下方 return y, 所以这个计数只会因「连续无新行」而累加。
 GATE_BLOCK = False       # 成本闸门是否拦截(False=只告警留证); 见 refine_row 里的说明
 SAME_ROW_DIFF = 12.0     # 行裁剪「同一条」判定: 逐像素平均差阈值
 ROW_MAX = 12             # 单行最多进阶几轮(防呆)
@@ -725,6 +730,7 @@ def pick_row(sc: kit.Screen, visited: list[np.ndarray]) -> int | None:
     (只在「有绿格可见」时判到底 —— 连续两屏都没绿格可能是绿装稀疏, 继续滑)
     """
     prev_ys: list[int] | None = None
+    dry = 0                                  # 连续无新行的滑屏次数（见 DRY_SCROLL_GIVEUP）
     for s in range(SCROLL_MAX + 1):
         img = sc.grab()
         ys = [cy for cy, _ in _green_tiles(sc, img)]
@@ -737,6 +743,10 @@ def pick_row(sc: kit.Screen, visited: list[np.ndarray]) -> int | None:
                 log(f"上滑后绿格位置未变 {ys} → 列表已到底, 提前收工")
                 return None
             prev_ys = ys
+            dry += 1
+            if dry >= DRY_SCROLL_GIVEUP:
+                log(f"连续 {dry} 次滑屏没有新行 → 判定到底, 收工")
+                return None
             log(f"视口内没有可用的绿装行 → 上滑第 {s + 1} 次")
             _scroll(sc)
     return None
